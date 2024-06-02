@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>ESP32 Compass</title>
+    <style>
+      body {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      .compass {
+        position: relative;
+        width: 320px;
+        height: 320px;
+        border-radius: 50%;
+        box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+        margin: auto;
+      }
+
+      .compass > .compass-circle,
+      .compass > .my-point {
+        position: absolute;
+        width: 90%;
+        height: 90%;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        transition: transform 0.1s ease-out;
+        background: url(./compasscard.png)
+          center no-repeat;
+        background-size: contain;
+      }
+
+      .start-btn {
+        margin-bottom: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="compass">
+      <div class="compass-circle"></div>
+    </div>
+    <div class="card">
+          <!--p class="card-title"><i class="bearing-title" style="color:#059e8a;"></i> Bearing</p-->
+          <p class="bearing"><span id="bearing"></span> &deg;</p>
+    </div>
+</body>
+    <script src="script.js"></script>
+</html>
