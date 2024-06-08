@@ -30,6 +30,7 @@ function getReadings(){
         compassCircle.style.transform = `translate(-50%, -50%) rotate(${-bearing}deg)`;
         let imageElement = document.getElementById("calibration");
         switch (myObj.calstatus) {
+          console.log(myObj.calstatus);
           case 0:
             imageElement.src = "red.png";
             break;
