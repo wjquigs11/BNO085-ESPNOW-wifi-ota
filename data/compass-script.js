@@ -25,15 +25,33 @@ function getReadings(){
       if (this.readyState == 4 && this.status == 200) {
         var myObj = JSON.parse(this.responseText);
         console.log(myObj);
-        var bearing = myObj.bearing;
+        var bearing = myObj.bearing.toFixed(1);
         // we know the JSON object has a 'bearing' property because we set it in esp32 getSensorReadings()
         compassCircle.style.transform = `translate(-50%, -50%) rotate(${-bearing}deg)`;
+        let imageElement = document.getElementById("calibration");
+        switch (myObj.calstatus) {
+          case 0:
+            imageElement.src = "red.png";
+            break;
+          case 1:
+            imageElement.src = "orange.png";
+            break;
+          case 2:
+            imageElement.src = "yellow.png";
+            break;
+          case 3:
+            imageElement.src = "green.png";
+            break;
+          default:
+            imageElement.src = "";
+            break;
+        }
       }
     }; 
     xhr.open("GET", "/readings", true);
     xhr.send();
   }
-  
+
   if (!!window.EventSource) {
     var source = new EventSource('/events');
     
@@ -55,10 +73,8 @@ function getReadings(){
       console.log("new_readings", e.data);
       var myObj = JSON.parse(e.data);
       console.log(myObj);
-      var bearing = myObj.bearing;
+      var bearing = myObj.bearing.toFixed(1);
       compassCircle.style.transform = `translate(-50%, -50%) rotate(${-bearing}deg)`;
       document.getElementById('bearing').innerHTML = bearing;
-
-  }, false);
-  
+    }, false);
   }

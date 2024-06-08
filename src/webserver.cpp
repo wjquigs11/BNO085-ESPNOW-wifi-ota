@@ -9,10 +9,8 @@
 #include <WiFiMulti.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
-//#include <Adafruit_BNO08x.h>
 #include <math.h>
 #include "Async_ConfigOnDoubleReset_Multi.h"
-//#include <ESPAsync_WiFiManager.h>               //https://github.com/khoih-prog/ESPAsync_WiFiManager
 
 double rad=0.01745;
 
@@ -23,6 +21,7 @@ static int orientation; // how is the compass oriented on the board
 extern Preferences preferences;     
 
 extern AsyncWebServer server;
+extern bool serverStarted;
 extern AsyncEventSource events;
 extern JSONVar readings;
 extern String host;
@@ -63,6 +62,8 @@ String processor(const String& var){
   return String();
 }
 
+void logToAll(String S);
+
 void startWebServer() {
   Serial.println("starting web server");
 
@@ -70,22 +71,20 @@ void startWebServer() {
   server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
   server.serveStatic("/", SPIFFS, "/");
 
-  // Request for the latest sensor readings
+  // Request latest sensor readings
   server.on("/readings", HTTP_GET, [](AsyncWebServerRequest *request) {
     String json = getSensorReadings();
-    Serial.println("getSensorReadings");
+    logToAll("getSensorReadings\n");
     request->send(200, "application/json", json);
     json = String();
   });
 
   server.on("/host", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String buf = "hostname: " + host + ", variation: " + String(variation) + ", orientation: " + String(orientation) + ", timerdelay: " + String(timerDelay);
-    Serial.print("hostname: ");
-    Serial.println(host.c_str());
+    String buf = "hostname: " + host + ", variation: " + String(variation) + ", orientation: " + String(orientation) + ", timerdelay: " + String(timerDelay) + "\n";
+    logToAll(buf);
     request->send_P(200, "text/plain", buf.c_str());
   });
-// switching config to GET because it's easier
-//  server.on("/config", HTTP_POST, [](AsyncWebServerRequest *request) {
+
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request) {
     if (request->hasParam("orientation")) {
       orientation = atoi(request->getParam("orientation")->value().c_str());

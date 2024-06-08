@@ -154,7 +154,7 @@ uint8_t connectMultiWiFi()
 
   // AP only for ESPNOW
   //WiFi.mode(WIFI_AP_STA);
-  WiFi.mode(WIFI_STA);
+  //WiFi.mode(WIFI_STA);
 
   Serial.print("ESP Board MAC Address:  ");
   Serial.println(WiFi.macAddress());
@@ -219,7 +219,8 @@ uint8_t connectMultiWiFi()
 #if ESP8266
     ESP.reset();
 #else
-    ESP.restart();
+// no reason to restart if we're not on wifi
+    // ESP.restart();
 #endif
   }
 

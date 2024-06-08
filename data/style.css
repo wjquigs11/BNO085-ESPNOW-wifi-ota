@@ -65,12 +65,6 @@ body {
   width: 20%;
 }
 
-/* what I should be able to do but I can't because I don't have a preprocessor
-.multibutton {
-  @extend .button;
-}
-*/
-
 .button-row {
   display: flex;
   justify-content: center;

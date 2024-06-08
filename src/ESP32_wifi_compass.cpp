@@ -14,6 +14,11 @@
 #include <esp_wifi.h>
 #include "Async_ConfigOnDoubleReset_Multi.h"
 #include <ElegantOTA.h>
+//#include "ThingSpeak.h"
+#include <ESPAsyncWebServer.h>
+#include <WebSerial.h>
+
+File consLog;
 
 #define BNO08X_RESET -1
 Adafruit_BNO08x  bno08x(BNO08X_RESET);
@@ -31,6 +36,7 @@ Preferences preferences;
 
 #define HTTP_PORT 80
 AsyncWebServer server(HTTP_PORT);
+bool serverStarted=false;
 AsyncEventSource events("/events");
 extern void setupWifi();
 extern void startWebServer();
@@ -50,11 +56,9 @@ float heading, heading2, accuracy;
 int calStatus;
 
 // ESPNOW
-// Set your Board ID (ESP32 Sender #1 = BOARD_ID 1, ESP32 Sender #2 = BOARD_ID 2, etc)
 #define BOARD_ID 1
-// MAC Address of the receiver 
-//uint8_t serverAddress[] = {0x48, 0xE7, 0x29, 0x94, 0x00, 0x70};
-uint8_t serverAddress[] = {0xC0, 0x49, 0xEF, 0xAB, 0x5E, 0x38};
+// MAC Address of the controller (with boat compass) 
+uint8_t serverAddress[] = {0xE8, 0x6B, 0xEA, 0xD3, 0x9C, 0x7C};
 esp_now_peer_info_t peerInfo;
 
 // TBD: put these in a shared header file
@@ -80,11 +84,22 @@ unsigned long previousMillis, previousDisplay, previousReading;
 unsigned int readingId = 0;
 #define BNOREADRATE 20  // msecs for 50Hz rate; optimum for BNO08x calibration
 
+// ThingSpeak
+//#define THINGSPEAK
+#ifdef THINGSPEAK
+unsigned long myChannelNumber = 1;
+const char *myWriteAPIKey = "KK4LTOKWLF5VFX0I";
+WiFiClient client;
+#define TSDELAY 15000 // max update rate 15 secs
+unsigned long previousTS;
+#endif
+
 // Insert your SSID
 //constexpr char WIFI_SSID[] = "dmlgoo";
 int32_t getWiFiChannel(const char *ssid);
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 
+#define N2K
 void SendN2kCompass(float heading);
 void setupN2K();
 
@@ -96,18 +111,20 @@ void setReports(void) {
       Serial.println("Could not enable game vector");
     else Serial.println("enabled game vector");
   if (absRot)
-    if (!bno08x.enableReport(SH2_ROTATION_VECTOR,1))
+    if (!bno08x.enableReport(SH2_ROTATION_VECTOR,100))
       Serial.println("Could not enable rotation vector");
     else Serial.println("enabled abs rotation vector");
-  if (!bno08x.enableReport(SH2_PRESSURE,500))
+#if NOTDEF
+  if (!bno08x.enableReport(SH2_PRESSURE,5000))
     Serial.println("Could not enable pressure");
   else Serial.println("enabled pressure");
-  if (!bno08x.enableReport(SH2_HUMIDITY,500))
+  if (!bno08x.enableReport(SH2_HUMIDITY,5000))
     Serial.println("Could not enable humidity");
   else Serial.println("enabled humidity");
-  if (!bno08x.enableReport(SH2_TEMPERATURE,500))
+  if (!bno08x.enableReport(SH2_TEMPERATURE,5000))
     Serial.println("Could not enable temperature");
   else Serial.println("enabled temperature");
+#endif
 }
 
 float getMastHeading() {
@@ -145,10 +162,11 @@ float getMastHeading() {
         accuracy = sensorValue.un.rotationVector.accuracy;
         heading = calculateHeading(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, 0);
 //        Serial.printf("heading1: %.2f ", heading);
-        heading2 = calculateHeading2(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, 0);
+//        heading2 = calculateHeading2(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, 0);
 //        printf("rota vector status %d %.2f %.2f %.2f %.2f ", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
 //        printf("heading2: %.2f degrees, accuracy %.2f/%.2f r/d, status %d\n", heading2, accuracy, accuracy * 180.0 / M_PI, calStatus);
         readings["bearing"] = heading;
+        readings["calstatus"] = calStatus;
         return heading;
       }
       break;
@@ -186,47 +204,71 @@ float calculateHeading(float r, float i, float j, float k, int correction) {
 
 float calculateHeading2(float r, float i, float j, float k, int correction) {
   float heading = atan2(2.0 * (i * j + k * r), r * r - i * i - j * j + k * k); // in radians
-  heading = (heading * 180.0 / M_PI) + correction; // convert to degrees
-  if (heading < 0) heading += 360;
+  heading *= (180.0 / M_PI); // convert to degrees
+  heading += correction; 
+  if (heading < 0) heading += 360.0;
   return heading;
 }
 
+void logToAll(String s) {
+  Serial.print(s);
+  consLog.print(s);
+  if (serverStarted)
+    WebSerial.print(s);
+}
+ 
 // callback when data is sent
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  //Serial.print("\r\nLast Packet Send Status:\t");
-  //Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  logToAll("\r\nLast Packet Send Status:\t");
+  logToAll(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success: " : "Delivery Fail: ");
+  logToAll(String(status) + "\n");
 }
 
 void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { 
+  logToAll("Packet received: ");
 #define DEBUG
 #ifdef DEBUG
   // Copies the sender mac address to a string
-  char macStr[18];
-  Serial.print("Packet received from: ");
+  char macStr[64]];
   snprintf(macStr, sizeof(macStr), "0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.println(macStr);
+  logToAll(String(macStr));
 #endif
   memcpy(&inCommand, incomingData, sizeof(inCommand));
-  Serial.printf("toggle %d orientation %d frequency %d\n", inCommand.compassOnToggle, inCommand.orientation, inCommand.frequency);
+  logToAll(" toggle " + String(inCommand.compassOnToggle) + " orientation " + String(inCommand.orientation) + " frequency " + String(inCommand.frequency) + "\n");
   // storing here redundantly since it comes from the main controller
   preferences.putInt("orientation", inCommand.orientation);
   preferences.putInt("frequency", inCommand.frequency);
 }
- 
+
 void setup() {
   Serial.begin(115200); delay(300);
   //Wire.begin();
-  Serial.println("Adafruit BNO08x");
+  if (SPIFFS.begin())
+    Serial.println("opened SPIFFS");
+  else
+    Serial.println("failed to open SPIFFS");
+  consLog = SPIFFS.open("/console.log", "w", true);
+  if(!consLog)
+    Serial.println("failed to open console log");
+  if(consLog.println("ESP compass console log.")) {
+    Serial.println("console log written");
+  } else {
+    Serial.println("console log write failed");
+  }
+  logToAll("Adafruit BNO08x based tilt-compensated compass\n");
 
   setupWifi();
   if (!MDNS.begin(host.c_str()) )
-    Serial.println(F("Error starting MDNS responder!"));
-  else Serial.printf("MDNS started %s\n", host.c_str());
+    logToAll(F("Error starting MDNS responder\n"));
+  else {
+    logToAll("MDNS started " + host + "\n");
+  }
+  //Serial.printf("MDNS started %s\n", host.c_str());
 
   // Add service to MDNS-SD
   if (!MDNS.addService("http", "tcp", HTTP_PORT))
-    Serial.printf("MDNS add service failed\n");
+    logToAll("MDNS add service failed\n");
     
   startWebServer();
 
@@ -236,51 +278,54 @@ void setup() {
     request->send(200, "text/plain", "Hello Billy.");
   });
 
+  // Initialize WebSerial
+  WebSerial.begin(&server);
+  delay(1000);
+
+  // Attach a callback function to handle incoming messages
+  WebSerial.onMessage([](uint8_t *data, size_t len) {
+    Serial.printf("Received %lu bytes from WebSerial: ", len);
+    Serial.write(data, len);
+    Serial.println();
+    WebSerial.println("Received Data...");
+    String d = "";
+    for(size_t i = 0; i < len; i++){
+      d += char(data[i]);
+    }
+    WebSerial.println(d);
+  });
+
   server.begin();
-  Serial.print(F("HTTP server started @ "));
-  Serial.println(WiFi.localIP());
+  serverStarted = true;
+  logToAll("HTTP server started @" + String(WiFi.localIP()) + "\n");
 
   preferences.begin(host.c_str(), false);                        
-  timerDelay = preferences.getInt("timerdelay", DEFDELAY);
+  inCommand.frequency = preferences.getInt("frequency", DEFDELAY);
   variation = preferences.getInt("variation", VARIATION);  
-  orientation = preferences.getInt("orientation", 0);
+  inCommand.orientation = preferences.getInt("orientation", 0);
   //displayDelay = preferences.getInt("displayDelay", DEFDELAY);
   gameRot = preferences.getBool("gameRot", false);
   absRot = preferences.getBool("absRot", true);
 
   // Try to initialize!
   if (!bno08x.begin_I2C()) {
-  //if (!bno08x.begin_UART(&Serial1)) {  // Requires a device with > 300 byte UART buffer!
-  //if (!bno08x.begin_SPI(BNO08X_CS, BNO08X_INT)) {
-    Serial.println("Failed to find BNO08x chip");
-    while (1) { delay(10); }
+    logToAll("Failed to find BNO08x chip\n");
   }
-  Serial.println("BNO08x Found!");
+  logToAll("BNO08x Found\n");
 
   for (int n = 0; n < bno08x.prodIds.numEntries; n++) {
-    Serial.print("Part ");
-    Serial.print(bno08x.prodIds.entry[n].swPartNumber);
-    Serial.print(": Version :");
-    Serial.print(bno08x.prodIds.entry[n].swVersionMajor);
-    Serial.print(".");
-    Serial.print(bno08x.prodIds.entry[n].swVersionMinor);
-    Serial.print(".");
-    Serial.print(bno08x.prodIds.entry[n].swVersionPatch);
-    Serial.print(" Build ");
-    Serial.println(bno08x.prodIds.entry[n].swBuildNumber);
+    String logString = "Part " + String(bno08x.prodIds.entry[n].swPartNumber) + ": Version :" + String(bno08x.prodIds.entry[n].swVersionMajor) + "." + String(bno08x.prodIds.entry[n].swVersionMinor) + "." + String(bno08x.prodIds.entry[n].swVersionPatch) +" Build " + String(bno08x.prodIds.entry[n].swBuildNumber);
+    logToAll(logString + "\n");
   }
 
   setReports();
 
-  Serial.println("setting up ESPNOW");
+  logToAll("setting up ESPNOW\n");
 
     // Set device as a Wi-Fi Station and set channel
   WiFi.mode(WIFI_STA);
-  //WiFi.disconnect(); // for strange reasons WiFi.disconnect() makes ESP-NOW work
-  //Serial.println("WiFi.disconnect() done");
 
-  Serial.print("ESP local MAC addr: ");
-  Serial.println(WiFi.macAddress());
+  logToAll("ESP local MAC addr: " + String(WiFi.macAddress()) + "\n");
 
   int32_t channel = getWiFiChannel(ssid.c_str());
   int err;
@@ -293,10 +338,9 @@ void setup() {
 
   //Init ESP-NOW
   if (err=esp_now_init() != ESP_OK) {
-    Serial.printf("Error initializing ESP-NOW: %d\n", err);
-    return;
+    logToAll("Error initializing ESP-NOW: " + String(err) + "\n");
   } else
-    Serial.println("ESP-NOW initialized");
+    logToAll("ESP-NOW initialized\n");
 
   // Once ESPNow is successfully Init, we will register for Send CB to
   // get the status of Transmitted packet
@@ -307,20 +351,29 @@ void setup() {
   memcpy(peerInfo.peer_addr, serverAddress, 6);
   peerInfo.encrypt = false;
   peerInfo.channel = 0;
-
-  Serial.printf("ESP peer MAC addr: ");
-  for (int i=0; i<ESP_NOW_ETH_ALEN; i++)
-    Serial.printf("%02X ", peerInfo.peer_addr[i]);
-  Serial.printf("\nchannel: %d ifidx: %x encrypt: %d\n", peerInfo.channel, peerInfo.ifidx, peerInfo.encrypt);
+/*
+  logToAll("ESP peer MAC addr: ");
+  char buf[128]; String sBuf;
+  for (int i=0; i<ESP_NOW_ETH_ALEN; i++) {
+    sprintf(buf, "%02X ", peerInfo.peer_addr[i]);
+    sBuf += buf;
+  }
+  logToAll(sBuf + "\n");
+  logToAll("channel: " + String(peerInfo.channel) + " ifidx: " + String(peerInfo.ifidx) + " encrypt: " + String(peerInfo.encrypt) + "\n");
+*/
   // Add peer        
   if (err=esp_now_add_peer(&peerInfo) != ESP_OK){
-    Serial.printf("Failed to add peer: %d\n", err);
-    return;
-  }
+    logToAll("Failed to add peer: " + String(err) + "\n");
+  } else logToAll("ESP peer added\n");
 #ifdef N2K
   setupN2K();
 #endif
-}
+#ifdef THINGSPEAK
+  ThingSpeak.begin(client);
+#endif
+  logToAll("display frequency: " + String(inCommand.frequency) + "\n");
+  consLog.flush();
+} // setup
 
 extern void check_status();
 String getSensorReadings();
@@ -333,7 +386,7 @@ void loop() {
   unsigned long currentMillis = millis();
   // sending on perhaps different schedule i.e. more frequently than we want to report on serial
   //Serial.printf("%d %ld %ld %d\n", inCommand.compassOnToggle, currentMillis, previousMillis, inCommand.frequency);
-  if (inCommand.compassOnToggle && (currentMillis - previousMillis >= inCommand.frequency)) {
+  if (inCommand.compassOnToggle && (currentMillis - previousMillis > inCommand.frequency)) {
     // Save the last time a new reading was published
     previousMillis = currentMillis;
     float heading = getMastHeading();
@@ -341,14 +394,25 @@ void loop() {
 #ifdef N2K
     SendN2kCompass(heading);
 #endif
+#ifdef THINGSPEAK
+  if (currentMillis - previousTS > TSDELAY) {
+    previousTS = currentMillis;
+    int x = ThingSpeak.writeField(myChannelNumber, 1, heading, myWriteAPIKey);
+    if (x == 200)
+      Serial.println("Channel update successful.");
+    else
+      Serial.println("Problem updating channel. HTTP error code " + String(x));
+      //int y = ThingSpeak.getLastReadStatus();
+  }
+#endif
     //Serial.printf("c-p %ld %ld %d %d ", currentMillis, previousMillis, currentMillis-previousMillis, displayDelay);
-    if (currentMillis - previousDisplay >= displayDelay) {
+    if (currentMillis - previousDisplay > displayDelay) {
       previousDisplay = currentMillis;
-      //Serial.printf("c: %l p: %l d: %d ", currentMillis, previousMillis, displayDelay);
-      Serial.printf("heading: %.2f degrees, accuracy %.2f/%.2f r/d, cal status %d\n", heading, accuracy, accuracy * 180.0 / M_PI, calStatus);
+      WebSerial.printf("heading: %.2f degrees, accuracy %.2f/%.2f r/d, cal status %d\n", heading, accuracy, accuracy * 180.0 / M_PI, calStatus);
     }
   }
   check_status();  
+  WebSerial.loop();
 }
 
 

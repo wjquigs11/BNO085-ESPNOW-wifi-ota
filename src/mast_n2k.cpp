@@ -53,60 +53,36 @@ void setupN2K() {
 //tNMEA2000 &N2K=*(new tNMEA2000_mcp(N2k_SPI_CS_PIN,MCP_16MHz,N2k_CAN_INT_PIN,MCP_CAN_RX_BUFFER_SIZE));
 
   // Set Product information
-  n2kesp->SetProductInformation("11111", // Manufacturer's Model serial code
+  n2kesp->SetProductInformation("20240530", // Manufacturer's Model serial code
                                  111, // Manufacturer's product code
-                                 "ESP32",  // Manufacturer's Model ID
+                                 "ESP32 Compass",  // Manufacturer's Model ID
                                  "1.0",  // Manufacturer's Software version code
                                  "1.0" // Manufacturer's Model version
                                  );
   // Set device information
-  n2kesp->SetDeviceInformation(66666, // Unique number. Use e.g. Serial number.
-                                130, // Device function=Atmospheric. See codes on https://web.archive.org/web/20190531120557/https://www.nmea.org/Assets/20120726%20nmea%202000%20class%20&%20function%20codes%20v%202.00.pdf
-                                85, // Device class=External Environment. See codes on https://web.archive.org/web/20190531120557/https://www.nmea.org/Assets/20120726%20nmea%202000%20class%20&%20function%20codes%20v%202.00.pdf
-                                2046 // Just choosen free from code list on https://web.archive.org/web/20190529161431/http://www.nmea.org/Assets/20121020%20nmea%202000%20registration%20list.pdf
-                               );
+  n2kesp->SetDeviceInformation(20240530, // Unique number. Use e.g. Serial number.
+                                140, // Attitude (heading)
+                                60, // Navigation
+                                2046); 
   // Uncomment 2 rows below to see, what device will send to bus. Use e.g. OpenSkipper or Actisense NMEA Reader                           
   Serial.println("Starting compass xmit...");
   n2kesp->SetForwardStream(&Serial);
-  n2kesp->SetForwardType(tNMEA2000::fwdt_Text); // Show in clear text. Leave uncommented for default Actisense format.
+  n2kesp->SetForwardType(tNMEA2000::fwdt_Text);
   // If you also want to see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
-  n2kesp->SetMode(tNMEA2000::N2km_ListenAndNode,23);
+  n2kesp->SetMode(tNMEA2000::N2km_NodeOnly,23);
   n2kesp->EnableForward(true);
   n2kesp->SetForwardOwnMessages(false);
   n2kesp->ExtendTransmitMessages(TransmitMessages);
   // Define OnOpen call back. This will be called, when CAN is open and system starts address claiming.
   //n2kesp->SetOnOpen(OnN2kOpen);
   n2kesp->Open();
-/*
-  if ( ! display.begin(0x3C) ) {
-     Serial.println("Unable to initialize OLED");
-     //while (1) yield();
-  } else {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    display.setTextWrap(false);
-    display.printf("ready..\n");
-    display.display();
-  }
-*/
 }
 
-/****************************************************************************
-void loop() {
-  SendN2kWind();
-  n2kesp->ParseMessages();
-  //display.printf("sending wind...\n");
-  //display.display();
-}
-*/
-
-// *****************************************************************************
 void SendN2kCompass(float heading) {
     tN2kMsg N2kMsg;
-    tN2kHeadingReference ref = N2khr_Unavailable;
+    tN2kHeadingReference ref = N2khr_magnetic; //N2khr_Unavailable;
     // sending with "unavailable" heading reference to (try to) avoid confusion
-    //Serial.printf("sending compass %f on n2k\n", heading);
+    Serial.printf("sending compass %f on n2k\n", heading);
     //N2kMsg.Print(&Serial);
     SetN2kPGN127250(N2kMsg, 1, heading*DEGTORAD, 0, 0, ref);
     n2kesp->SendMsg(N2kMsg);

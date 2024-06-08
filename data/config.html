@@ -2,40 +2,34 @@
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!--link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous"-->
-  <style>
-    html {
-     font-family: Arial;
-     display: inline-block;
-     margin: 0px auto;
-     text-align: center;
-    }
-    h2 { font-size: 3.0rem; }
-    p { font-size: 3.0rem; }
-    .units { font-size: 1.2rem; }
-    .dht-labels{
-      font-size: 1.5rem;
-      vertical-align:middle;
-      padding-bottom: 15px;
-    }
-  </style>
+  <title>ESP32 Compass</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" type="text/css" href="style.css">
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <title>ESP32 Compass</title>
 </head>
 <body>
-  <h2>ESP32 DHT Server</h2>
+  <div class="topnav">
+    <h1>ESP32 Compass</h1>
+</div>
   <p>
-    <i class="fas fa-thermometer-half" style="color:#059e8a;"></i> 
-    <span class="dht-labels">Variation</span> 
-    <span id="temperature">%VARIATION%</span>
+    <i style="color:#059e8a;"></i> 
+    <span>Variation</span> 
+    <span id="variation">%VARIATION%</span>
   </p>
   <p>
-    <i class="fas fa-tint" style="color:#00add6;"></i> 
-    <span class="dht-labels">Oientation</span>
-    <span id="humidity">%ORIENTATION%</span>
+    <i style="color:#00add6;"></i> 
+    <span>Orientation</span>
+    <span id="orientation">%ORIENTATION%</span>
   </p>
   <p>
-    <i class="fas fa-tint" style="color:#00add6;"></i> 
-    <span class="dht-labels">TimerDelay</span>
-    <span id="humidity">%TIMERDELAY%</span>
+    <i style="color:#00add6;"></i> 
+    <span>TimerDelay</span>
+    <span id="timerdelay">%TIMERDELAY%</span>
   </p>
+  <p>go to host:/console.log for boot log</p>
+  <p>go to host:/webserial for serial console</p>
 </body>
 <script>
 setInterval(function ( ) {
