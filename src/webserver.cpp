@@ -86,6 +86,7 @@ void startWebServer() {
   });
 
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request) {
+    logToAll("config\n");
     if (request->hasParam("orientation")) {
       orientation = atoi(request->getParam("orientation")->value().c_str());
       Serial.printf("change orientation to %d\n", orientation);

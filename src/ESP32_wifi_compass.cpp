@@ -23,6 +23,7 @@ File consLog;
 #define BNO08X_RESET -1
 Adafruit_BNO08x  bno08x(BNO08X_RESET);
 sh2_SensorValue_t sensorValue;
+bool compassFound = false;
 // yellow = SCL = 22
 // blue = SDA = 21
 
@@ -99,7 +100,7 @@ unsigned long previousTS;
 int32_t getWiFiChannel(const char *ssid);
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
 
-#define N2K
+//#define N2K
 void SendN2kCompass(float heading);
 void setupN2K();
 
@@ -128,9 +129,10 @@ void setReports(void) {
 }
 
 float getMastHeading() {
+  if (!compassFound) return -1.0;
   unsigned long currentMillis = millis();
   if (currentMillis - previousReading < BNOREADRATE)
-    return 0; // minimum delay in case displayDelay is set too low
+    return -2.0; // minimum delay in case displayDelay is set too low
   previousReading = currentMillis;
 
   if (bno08x.wasReset()) {
@@ -138,7 +140,7 @@ float getMastHeading() {
     setReports();
   }
   if (!bno08x.getSensorEvent(&sensorValue)) {
-    return 0;
+    return -3.0;
   }
   //printf("ID: %d\n", sensorValue.sensorId);
       /* Status of a sensor
@@ -176,7 +178,7 @@ float getMastHeading() {
   }
   if (gameRot && absRot)
     printf("difference %.2f\n", abs(heading-heading2));
-  return 0;
+  return -4.0;
 }
 
 // Function to calculate tilt-compensated heading from a quaternion
@@ -229,8 +231,8 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
 #define DEBUG
 #ifdef DEBUG
   // Copies the sender mac address to a string
-  char macStr[64]];
-  snprintf(macStr, sizeof(macStr), "0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x",
+  char macStr[64];
+  sprintf(macStr, "0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x",
            mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   logToAll(String(macStr));
 #endif
@@ -239,6 +241,72 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   // storing here redundantly since it comes from the main controller
   preferences.putInt("orientation", inCommand.orientation);
   preferences.putInt("frequency", inCommand.frequency);
+}
+
+void i2cScan() {
+  byte error, address;
+  int nDevices = 0;
+
+  logToAll("Scanning...");
+
+  for (address = 1; address < 127; address++) {
+    // The i2c_scanner uses the return value of
+    // the Write.endTransmission to see if
+    // a device acknowledged the address.
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    
+    char buf[16];
+    sprintf(buf, "%2X", address); // Formats value as uppercase hex
+
+    if (error == 0) {
+      logToAll("I2C device found at address 0x" + String(buf) + "\n");
+      nDevices++;
+    }
+    else if (error == 4) {
+      logToAll("error at address 0x" + String(buf) + "\n");
+    }
+  }
+
+  if (nDevices == 0) {
+    logToAll("No I2C devices found\n");
+  }
+  else {
+    logToAll("done\n");
+  }
+}
+
+void WebSerialonMessage(uint8_t *data, size_t len) {
+    Serial.printf("Received %lu bytes from WebSerial: ", len);
+    Serial.write(data, len);
+    Serial.println();
+    WebSerial.println("Received Data...");
+    String d = "";
+    for(size_t i = 0; i < len; i++){
+      d += char(data[i]);
+    }
+    WebSerial.println(d);
+    if (d.equals("spiffs")) {
+      SPIFFS.format();
+      WebSerial.println("SPIFFS formatted");
+    }
+    if (d.equals("restart")) {
+      ESP.restart();
+    }
+    if (d.equals("ls")) {
+      File root = SPIFFS.open("/");
+      File file = root.openNextFile();
+      while(file){
+        WebSerial.println(file.name());
+        file.close(); // Close the file after reading its name
+        file = root.openNextFile();
+      }
+      root.close();
+      WebSerial.println("done");
+    }
+    if (d.equals("scan")) {
+      i2cScan();
+    }
 }
 
 void setup() {
@@ -283,17 +351,7 @@ void setup() {
   delay(1000);
 
   // Attach a callback function to handle incoming messages
-  WebSerial.onMessage([](uint8_t *data, size_t len) {
-    Serial.printf("Received %lu bytes from WebSerial: ", len);
-    Serial.write(data, len);
-    Serial.println();
-    WebSerial.println("Received Data...");
-    String d = "";
-    for(size_t i = 0; i < len; i++){
-      d += char(data[i]);
-    }
-    WebSerial.println(d);
-  });
+  WebSerial.onMessage(WebSerialonMessage);
 
   server.begin();
   serverStarted = true;
@@ -308,17 +366,17 @@ void setup() {
   absRot = preferences.getBool("absRot", true);
 
   // Try to initialize!
-  if (!bno08x.begin_I2C()) {
+  compassFound = bno08x.begin_I2C(0x4a);
+  if (!compassFound) {
     logToAll("Failed to find BNO08x chip\n");
+  } else {
+    logToAll("BNO08x Found\n");
+    for (int n = 0; n < bno08x.prodIds.numEntries; n++) {
+      String logString = "Part " + String(bno08x.prodIds.entry[n].swPartNumber) + ": Version :" + String(bno08x.prodIds.entry[n].swVersionMajor) + "." + String(bno08x.prodIds.entry[n].swVersionMinor) + "." + String(bno08x.prodIds.entry[n].swVersionPatch) +" Build " + String(bno08x.prodIds.entry[n].swBuildNumber);
+      logToAll(logString + "\n");
+    }
+    setReports();
   }
-  logToAll("BNO08x Found\n");
-
-  for (int n = 0; n < bno08x.prodIds.numEntries; n++) {
-    String logString = "Part " + String(bno08x.prodIds.entry[n].swPartNumber) + ": Version :" + String(bno08x.prodIds.entry[n].swVersionMajor) + "." + String(bno08x.prodIds.entry[n].swVersionMinor) + "." + String(bno08x.prodIds.entry[n].swVersionPatch) +" Build " + String(bno08x.prodIds.entry[n].swBuildNumber);
-    logToAll(logString + "\n");
-  }
-
-  setReports();
 
   logToAll("setting up ESPNOW\n");
 

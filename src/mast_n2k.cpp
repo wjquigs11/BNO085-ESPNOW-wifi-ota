@@ -82,7 +82,7 @@ void SendN2kCompass(float heading) {
     tN2kMsg N2kMsg;
     tN2kHeadingReference ref = N2khr_magnetic; //N2khr_Unavailable;
     // sending with "unavailable" heading reference to (try to) avoid confusion
-    Serial.printf("sending compass %f on n2k\n", heading);
+    //Serial.printf("sending compass %f on n2k\n", heading);
     //N2kMsg.Print(&Serial);
     SetN2kPGN127250(N2kMsg, 1, heading*DEGTORAD, 0, 0, ref);
     n2kesp->SendMsg(N2kMsg);
