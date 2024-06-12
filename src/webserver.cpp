@@ -29,7 +29,8 @@ extern String host;
 // Timer variables
 #define DEFDELAY 1000
 extern unsigned long lastTime;
-extern int timerDelay;
+extern int WebTimerDelay;
+extern int minReadRate;
 
 extern bool gameRot, absRot;
 
@@ -57,7 +58,7 @@ String processor(const String& var){
     return String(orientation);
   }
   else if(var == "TIMERDELAY"){
-    return String(timerDelay);
+    return String(WebTimerDelay);
   }
   return String();
 }
@@ -80,7 +81,7 @@ void startWebServer() {
   });
 
   server.on("/host", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String buf = "hostname: " + host + ", variation: " + String(variation) + ", orientation: " + String(orientation) + ", timerdelay: " + String(timerDelay) + "\n";
+    String buf = "hostname: " + host + ", variation: " + String(variation) + ", orientation: " + String(orientation) + ", timerdelay: " + String(WebTimerDelay) + "\n";
     logToAll(buf);
     request->send_P(200, "text/plain", buf.c_str());
   });
@@ -89,29 +90,36 @@ void startWebServer() {
     logToAll("config\n");
     if (request->hasParam("orientation")) {
       orientation = atoi(request->getParam("orientation")->value().c_str());
-      Serial.printf("change orientation to %d\n", orientation);
+      logToAll("change orientation to " + String(orientation) + "\n");
       preferences.putInt("orientation", orientation);
     } else if (request->hasParam("variation")) {
       variation = atoi(request->getParam("variation")->value().c_str());
-      Serial.printf("change variation to %d\n", variation);
+      logToAll("change variation to " + String(variation) + "\n");
       preferences.putInt("variation",variation);
     } else if (request->hasParam("timerdelay")) {
-      timerDelay = atoi(request->getParam("timerdelay")->value().c_str());
-      Serial.printf("change timerdelay to %d\n", timerDelay);
-      preferences.putInt("timerdelay",timerDelay);
+      WebTimerDelay = atoi(request->getParam("timerdelay")->value().c_str());
+      if (WebTimerDelay < minReadRate) WebTimerDelay = minReadRate;
+      logToAll("change WebTimerDelay to " + String(WebTimerDelay) + "\n");
+      preferences.putInt("timerdelay",WebTimerDelay);
     } else if (request->hasParam("gameRot")) {
       gameRot = (request->getParam("gameRot")->value().equals("true")) ? true : false;
-      Serial.printf("change game to %d\n", gameRot);
+      logToAll("change game to " + String(gameRot) + "\n");
       preferences.putBool("gameRot",gameRot);
       setReports();
     } else if (request->hasParam("absRot")) {
       Serial.printf("absrot %s\n", request->getParam("absRot")->value().c_str());
       absRot = (request->getParam("absRot")->value().equals("true")) ? true : false;
-      Serial.printf("change abs to %d\n", absRot);
+      logToAll("change abs to " + String(absRot) + "\n");
       preferences.putBool("absRot",absRot);
       setReports();
+    }  else if (request->hasParam("hostname")) {
+      Serial.printf("hostname %s\n", request->getParam("hostname")->value().c_str());
+      host = request->getParam("hostname")->value();
+      logToAll("change hostname to " + host + "\n");
+      preferences.putString("hostname",host);
     } 
-    request->send(SPIFFS, "/index.html", "text/html");
+    //request->send(SPIFFS, "/index.html", "text/html");
+    request->redirect("/index.html");
   }); 
 
   events.onConnect([](AsyncEventSourceClient *client){
