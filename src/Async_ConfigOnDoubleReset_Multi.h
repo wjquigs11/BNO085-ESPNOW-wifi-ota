@@ -46,7 +46,7 @@
 #define ESP_ASYNC_WIFIMANAGER_VERSION_MIN             1014000
 
 // Use from 0 to 4. Higher number, more debugging messages and memory usage.
-#define _ESPASYNC_WIFIMGR_LOGLEVEL_    1
+#define _ESPASYNC_WIFIMGR_LOGLEVEL_    4
 
 #include <FS.h>
 
@@ -114,7 +114,7 @@
   #endif
   //////
 
-  //#define LED_BUILTIN       2
+  #define LED_BUILTIN       2
   #define LED_ON            HIGH
   #define LED_OFF           LOW
 
@@ -308,8 +308,8 @@ extern bool initialConfig;    // = false;
   #define USE_DHCP_IP     true
 #else
   // You can select DHCP or Static IP here
+  //#define USE_DHCP_IP     true
   #define USE_DHCP_IP     true
-  //#define USE_DHCP_IP     false
 #endif
 
 #if ( USE_DHCP_IP )

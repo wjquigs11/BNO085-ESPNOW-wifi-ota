@@ -63,7 +63,7 @@ int32_t getWiFiChannel(const char *ssid) {
 
 void setupWifi() {
   //int32_t channel = getWiFiChannel(ssid.c_str());
-  //WiFi.printDiag(Serial); // Uncomment to verify channel number before
+  //int32_t channel = 6;  // fixed channel for ESPNOW
   //esp_wifi_set_promiscuous(true);
   //esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
   //esp_wifi_set_promiscuous(false);

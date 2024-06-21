@@ -42,7 +42,9 @@ DoubleResetDetector* drd;
 const int PIN_LED = 2; // D4 on NodeMCU and WeMos. GPIO2/ADC12 of ESP32. Controls the onboard LED.
 
 // SSID and PW for Config Portal
-String ssid = "ESP_" + String(ESP_getChipId(), HEX);
+extern String host;
+String ssid = host;
+//String ssid = "ESP_" + String(ESP_getChipId(), HEX);
 String password = "password";
 //extern const char* password;    // = "your_password";
 
@@ -152,9 +154,8 @@ uint8_t connectMultiWiFi()
 
   uint8_t status;
 
-  // AP only for ESPNOW
-  //WiFi.mode(WIFI_AP_STA);
-  //WiFi.mode(WIFI_STA);
+//  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_STA);
 
   Serial.print("ESP Board MAC Address:  ");
   Serial.println(WiFi.macAddress());
@@ -219,8 +220,10 @@ uint8_t connectMultiWiFi()
 #if ESP8266
     ESP.reset();
 #else
-// no reason to restart if we're not on wifi
-    // ESP.restart();
+//  ESP.restart();
+// if we cannot connect to wifi, just go into STA mode instead so we can communicate over ESPNOW
+//  WiFi.mode(WIFI_STA);
+  LOGERROR3(F("STA mode Channel:"), WiFi.channel(), F(",IP address:"), WiFi.localIP() );
 #endif
   }
 
