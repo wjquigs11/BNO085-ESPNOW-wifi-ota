@@ -10,7 +10,6 @@
 #include <SPIFFS.h>
 #include <Adafruit_BNO08x.h>
 #include <math.h>
-#include <esp_now.h>
 #include <esp_wifi.h>
 #include "Async_ConfigOnDoubleReset_Multi.h"
 #include <ElegantOTA.h>
@@ -59,6 +58,8 @@ int calStatus;
 TwoWire *i2c;
 // for SPI BNO compass
 #define RESET 14 // pull low to reset
+#define SDA 21
+#define SCL 22
 // mode pins pull high for SPI
 //#define SPI0 21
 //#define SPI1 22
@@ -79,22 +80,7 @@ Adafruit_SSD1306 *display;
 Adafruit_BNO08x bno08x(RESET);
 sh2_SensorValue_t sensorValue;
 bool compassReady = false;
-
-// ESPNOW
-// MAC Address of the controller (with boat compass)
-//uint8_t serverAddress[] = {0x08, 0xB6, 0x1F, 0xB8, 0xC4, 0xAC};
-//uint8_t serverAddress[ESP_NOW_ETH_ALEN];
-//uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-uint8_t serverAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // starts as broadcast, to be replaced by actual server
-esp_now_peer_info_t peerInfo;
-#define MAX_CHANNEL 11  // 11 in North America or 13 in Europe
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
-int32_t channel;
-//bool compassPeered = false;
-enum PairingStatus {NOT_PAIRED, PAIR_REQUEST, PAIR_REQUESTED, PAIR_PAIRED,};
-PairingStatus pairingStatus = NOT_PAIRED;
 control_s compassParams;
-esp_now_peer_info_t peer;
 
 // timing
 #define DEFDELAY 50 // for compass driver update
@@ -102,18 +88,18 @@ unsigned long WebTimerDelay = 1000; // for display
 unsigned long previousMillis, previousDisplay, previousReading;
 unsigned int readingId = 0;
 #define BNOREADRATE 20 // msecs for 50Hz rate; optimum for BNO08x calibration
-int minReadRate = BNOREADRATE;
+//int minReadRate = BNOREADRATE;
+int minReadRate = DEFDELAY;
 unsigned long currentMillis = millis();
 unsigned long start;                // used to measure ESPNOW pairing time
 
 #define N2K // if N2K defined, init CAN bus and send N2K Heading PGN
+#ifdef N2K
 String can_state;
 int num_n2k_messages = 0;
-
-//int32_t getWiFiChannel(const char *ssid);
-
 void SendN2kCompass(float heading);
 void setupN2K();
+#endif
 
 void ToggleLed() {
   static bool led_state = false;
@@ -257,128 +243,6 @@ float calculateHeading2(float r, float i, float j, float k, int correction) {
   if (heading < 0) heading += 360.0;
   return heading;
 }
-void addPeer(const uint8_t * mac_addr, uint8_t chan){
-  ESP_ERROR_CHECK(esp_wifi_set_channel(chan ,WIFI_SECOND_CHAN_NONE));
-  esp_now_del_peer(mac_addr);
-  memset(&peer, 0, sizeof(esp_now_peer_info_t));
-  peer.channel = chan;
-  peer.encrypt = false;
-  memcpy(peer.peer_addr, mac_addr, sizeof(uint8_t[6]));
-  if (esp_now_add_peer(&peer) != ESP_OK){
-    Serial.println("Failed to add peer");
-    return;
-  } else Serial.println("added peer");
-  memcpy(serverAddress, mac_addr, sizeof(uint8_t[6]));
-}
-
-void printMAC(const uint8_t * mac_addr){
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-  Serial.print(macStr);
-}
-/*
-void readGetMacAddress() {
-  uint8_t baseMac[6];
-  esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, baseMac);
-  if (ret == ESP_OK) {
-    Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
-                  baseMac[0], baseMac[1], baseMac[2],
-                  baseMac[3], baseMac[4], baseMac[5]);
-  } else {
-    Serial.println("Failed to read MAC address");
-  }
-  for (int i=0; i<6; i++)
-    clientAddress[i] = baseMac[i];
-}
-*/
-// callback when ESPNOW data is sent
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  logToAll("\r\nLast Packet Send Status:\t");
-  logToAll(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success: " : "Delivery Fail: ");
-  logToAll(String(status) + "\n");
-}
-
-void OnDataRecv(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
-  logToAll("Packet received " + String(len) + " bytes: ");
-  printMAC(mac_addr);
-  memcpy(&compassParams, incomingData, sizeof(compassParams));
-  logToAll("\ntoggle " + String(compassParams.compassOnToggle) + " orientation " + String(compassParams.orientation) + " frequency " + String(compassParams.frequency) + "\n");
-  if (compassParams.frequency < minReadRate) compassParams.frequency = minReadRate;
-  if (compassParams.frequency > 1000) compassParams.frequency = 1000;
-  // storing here redundantly since it comes from the main controller
-  preferences.putInt("orientation", compassParams.orientation);
-  preferences.putInt("frequency", compassParams.frequency);
-  const char *reply = host.c_str();
-  Serial.printf("reply len %d %d\n", sizeof(reply), host.length());
-  esp_err_t result = esp_now_send(mac_addr, (uint8_t *) reply, host.length());
-  if (result != ESP_OK) {
-    Serial.println("Error sending the data");
-  }
-  if (pairingStatus == PAIR_REQUEST) {  
-    // we got a packet from server on this channel, save channel and add peer
-    Serial.print("Pairing done channel");
-    Serial.print(channel);    // channel used by the server
-    Serial.print(" in ");
-    Serial.print(millis()-start);
-    Serial.println("ms");
-    addPeer(mac_addr, channel); // add the server  to the peer list 
-    #ifdef SAVE_CHANNEL
-      lastChannel = pairingData.channel;
-      EEPROM.write(0, pairingData.channel);
-      EEPROM.commit();
-    #endif  
-    pairingStatus = PAIR_PAIRED; 
-  }
-}
-
-// we call this repeatedly until we guess the correct channel
-PairingStatus autoPairing() {
-  switch(pairingStatus) {
-    case PAIR_REQUEST: {
-      Serial.print("Pairing request on channel "  );
-      Serial.println(channel);
-
-      // set WiFi channel   
-      ESP_ERROR_CHECK(esp_wifi_set_channel(channel,  WIFI_SECOND_CHAN_NONE));
-      if (esp_now_init() != ESP_OK) {
-        Serial.println("Error initializing ESP-NOW");
-      }
-
-      // set callback routines
-      esp_now_register_send_cb(OnDataSent);
-      esp_now_register_recv_cb(OnDataRecv);
-    
-      addPeer(serverAddress, channel);
-      // send hostname and hope we get a reply on this channel
-      const char *reply = host.c_str();
-      Serial.printf("broadcast sending len %d %d\n", sizeof(reply), host.length());
-      esp_err_t result = esp_now_send(serverAddress, (uint8_t *) reply, host.length());
-      Serial.printf("esp_now_send returns 0x%X\n", result);
-      Serial.printf("%s\n", esp_err_to_name(result));
-      previousMillis = millis();
-      pairingStatus = PAIR_REQUESTED;
-      break;
-    }
-    case PAIR_REQUESTED: {
-      // time out to allow receiving response from server
-      currentMillis = millis();
-      if(currentMillis - previousMillis > 1000) {
-        previousMillis = currentMillis;
-        // time out expired,  try next channel
-        channel++;
-        if (channel > MAX_CHANNEL) channel = 1;
-        pairingStatus = PAIR_REQUEST;
-      }
-    break;
-    }
-    case PAIR_PAIRED: {
-      // nothing to do here 
-    break;
-    }
-  }
-  return pairingStatus;
-}  
 
 void i2cScan();
 void WebSerialonMessage(uint8_t *data, size_t len);
@@ -387,7 +251,7 @@ void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.println("I2C compass");
-#ifdef ESP32
+#ifdef ESP32 // use display
   i2c = new TwoWire(0);
   i2c->begin(SDA_PIN, SCL_PIN);
   display = new Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, i2c, -1);
@@ -414,7 +278,7 @@ void setup() {
   // 0x4A for Adafruit
   // 0x4B for Teyleten
   // compassReady = bno08x.begin_I2C(0x4A, i2c, 0);
-  Wire1.begin(21,22);
+  Wire1.begin(SDA,SCL);
   compassReady = bno08x.begin_I2C(0x4B, &Wire1, 0);
   if (!compassReady) {
     logToAll("Failed to find BNO08x.\n");
@@ -448,15 +312,27 @@ void setup() {
   compassParams.frequency = preferences.getInt("frequency", DEFDELAY);
   if (compassParams.frequency < minReadRate) compassParams.frequency = minReadRate;
   if (compassParams.frequency > 1000) compassParams.frequency = 1000;
+  logToAll("frequency " + String(compassParams.frequency) + "\n");
+  //Serial.printf("frequency %d\n", compassParams.frequency);
   compassParams.variation = preferences.getInt("variation", VARIATION);
+  logToAll("variation " + String(compassParams.variation) + "\n");
+  //Serial.printf("variation %d\n", compassParams.variation);
   compassParams.orientation = preferences.getInt("orientation", 0);
+  logToAll("orientation " + String(compassParams.orientation) + "\n");
+  //Serial.printf("orientation %d\n", compassParams.orientation);
   WebTimerDelay = preferences.getInt("timerdelay", 1000);
   if (WebTimerDelay<200) {
     WebTimerDelay = 200;
     preferences.putInt("timerdelay", 200);
   }
+  logToAll("WebTimerDelay " + String(WebTimerDelay) + "\n");
+  //Serial.printf("WebTimerDelay %d\n", WebTimerDelay);
   gameRot = preferences.getBool("gameRot", false);
+  logToAll("gameRot " + String(gameRot) + "\n");
+  //Serial.printf("gameRot %d\n", gameRot);
   absRot = preferences.getBool("absRot", true);
+  logToAll("absRot " + String(absRot) + "\n");
+  //Serial.printf("absRot %d\n", absRot);
   host = preferences.getString("host", "ESPcompass");
   logToAll("hostname: " + host + "\n");
 
@@ -466,11 +342,20 @@ void setup() {
   else {
     logToAll("MDNS started " + host + "\n");
   }
-  // Serial.printf("MDNS started %s\n", host.c_str());
 
   // Add service to MDNS-SD
   if (!MDNS.addService("http", "tcp", HTTP_PORT))
     logToAll("MDNS add service failed\n");
+
+  int n = MDNS.queryService("http", "tcp");
+  if (n == 0) {
+    logToAll("No services found");
+  } else {
+    for (int i = 0; i < n; i++) {
+      logToAll("Service found: ");
+      logToAll(MDNS.hostname(i) + " (" + String(MDNS.IP(i)) + ":" + String(MDNS.port(i)) + ")\n");
+    }
+  }
 
   startWebServer();
 
@@ -488,49 +373,10 @@ void setup() {
   serverStarted = true;
   logToAll("HTTP server started @" + String(WiFi.localIP()) + "\n");
 
-  // Init ESP-NOW
-  logToAll("setting up ESPNOW\n");
-  // Set device as a Wi-Fi Station and set channel
-  //WiFi.mode(WIFI_STA);
-  logToAll("ESP local MAC addr: " + String(WiFi.macAddress()) + "\n");
-  channel = WiFi.channel();
-  logToAll("ESP wifi channel: " + String(channel) + "\n");
-  // TBD read saved channel from preferences
-
-  if (int err = esp_now_init() != ESP_OK) {
-    logToAll("Error initializing ESP-NOW: " + String(err) + "\n");
-  } else
-    logToAll("ESP-NOW initialized\n");
-
-  //esp_now_register_send_cb(OnDataSent);
-  //esp_now_register_recv_cb(OnDataRecv);
-  pairingStatus = PAIR_REQUEST;
-/*
-  // Register peer
-  memcpy(peerInfo.peer_addr, serverAddress, 6);
-  peerInfo.encrypt = false;
-  peerInfo.channel = 0;
-//#ifdef DEBUG
-    logToAll("ESP peer MAC addr: ");
-    char buf[128]; String sBuf;
-    for (int i=0; i<ESP_NOW_ETH_ALEN; i++) {
-      sprintf(buf, "%02X ", peerInfo.peer_addr[i]);
-      sBuf += buf;
-    }
-    logToAll(sBuf + "\n");
-    logToAll("channel: " + String(peerInfo.channel) + " ifidx: " + String(peerInfo.ifidx) + " encrypt: " + String(peerInfo.encrypt) + "\n");
-//#endif  
-  // Add peer
-  if (err = esp_now_add_peer(&peerInfo) != ESP_OK) {
-    logToAll("Failed to add peer: " + String(err) + "\n");
-  } else
-    logToAll("ESP peer added\n");
-*/
 #ifdef N2K
   setupN2K();
 #endif
-  logToAll("compass check frequency: " + String(compassParams.frequency) + "\n");
-  consLog.close();
+  consLog.flush();
 
   // toggle the LED pin at rate of 1 Hz
   pinMode(LED_BUILTIN, OUTPUT);
@@ -540,7 +386,7 @@ void setup() {
   app.onRepeat(WebTimerDelay, []() {
     if (compassReady) {
       // Send Events to the client with the Sensor Readings Every x msecs
-      events.send("ping",NULL,millis());
+      //events.send("ping",NULL,millis());
       events.send(getSensorReadings().c_str(),"new_readings" ,millis());
       WebSerial.printf("heading: %.2f degrees, accuracy %.2f/%.2f r/d, cal status %d\n", heading, accuracy, accuracy*180.0/M_PI, calStatus);
       //Serial.printf("heading: %.2f degrees, accuracy %.2f/%.2f r/d, cal status %d\n", heading, accuracy, accuracy*180.0/M_PI, calStatus);
@@ -554,14 +400,7 @@ void setup() {
 #endif
   });  
 
-  // update web page 4x per second
-  app.onRepeat(250, []() {
-    events.send(getSensorReadings().c_str(), "new_readings", millis());
-  });
-
   app.onRepeat(100, []() {
-    if (autoPairing() == PAIR_PAIRED)
-      esp_err_t result = esp_now_send(serverAddress, (uint8_t *) host.c_str(), host.length());
 #ifdef N2K
     PollCANStatus();
 #endif

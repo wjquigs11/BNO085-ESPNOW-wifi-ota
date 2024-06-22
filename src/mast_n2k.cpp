@@ -49,16 +49,14 @@ void setupN2K() {
                                 140, // Attitude (heading)
                                 60, // Navigation
                                 2046); 
-  // Uncomment 2 rows below to see, what device will send to bus. Use e.g. OpenSkipper or Actisense NMEA Reader                           
   Serial.println("Starting compass xmit...");
-  n2kesp->SetForwardStream(&Serial);
-  n2kesp->SetForwardType(tNMEA2000::fwdt_Text);
+  //n2kesp->SetForwardStream(&Serial);
+  //n2kesp->SetForwardType(tNMEA2000::fwdt_Text);
   // If you also want to see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
   n2kesp->SetMode(tNMEA2000::N2km_NodeOnly,23);
-  n2kesp->EnableForward(true);
-  n2kesp->SetForwardOwnMessages(false);
+  //n2kesp->EnableForward(true);
+  //n2kesp->SetForwardOwnMessages(false);
   n2kesp->ExtendTransmitMessages(TransmitMessages);
-  // Define OnOpen call back. This will be called, when CAN is open and system starts address claiming.
   //n2kesp->SetOnOpen(OnN2kOpen);
   n2kesp->Open();
 }
@@ -68,8 +66,8 @@ void SendN2kCompass(float heading) {
     tN2kHeadingReference ref = N2khr_magnetic; //N2khr_Unavailable;
     // sending with "unavailable" heading reference to (try to) avoid confusion
     //Serial.printf("sending compass %f on n2k\n", heading);
-    //N2kMsg.Print(&Serial);
     SetN2kPGN127250(N2kMsg, 1, heading*DEGTORAD, 0, 0, ref);
+    //N2kMsg.Print(&Serial);
     n2kesp->SendMsg(N2kMsg);
     num_n2k_messages++;
 }

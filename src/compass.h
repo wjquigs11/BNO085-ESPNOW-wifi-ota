@@ -1,5 +1,4 @@
-// struct we will get from controller
-// not using orientation right now since we're correcting for it in the main controller code
+// compass control structure
 typedef struct control_s {
   bool compassOnToggle = true;
   int orientation = 0;

@@ -1,4 +1,6 @@
+/*
 
+*/
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <Arduino_JSON.h>
@@ -75,7 +77,7 @@ void startWebServer() {
   // Request latest sensor readings
   server.on("/readings", HTTP_GET, [](AsyncWebServerRequest *request) {
     String json = getSensorReadings();
-    logToAll("getSensorReadings\n");
+    //logToAll("getSensorReadings\n");
     request->send(200, "application/json", json);
     json = String();
   });
@@ -83,17 +85,9 @@ void startWebServer() {
   server.on("/host", HTTP_GET, [](AsyncWebServerRequest *request) {
     String buf = "hostname: " + host + ", variation: " + String(compassParams.variation) + ", orientation: " + String(compassParams.orientation) + ", timerdelay: " + String(WebTimerDelay) + "\n";
     buf += "ESP local MAC addr: " + String(WiFi.macAddress() + "\n");
-    buf += "ESP peer MAC addr: ";
-    char cbuf[128]; String sBuf;
-    for (int i=0; i<ESP_NOW_ETH_ALEN; i++) {
-      sprintf(cbuf, "%02X ", peerInfo.peer_addr[i]);
-      sBuf += cbuf;
-    }
-    buf += sBuf + "\n";
-    buf += ("channel: " + String(peerInfo.channel) + " ifidx: " + String(peerInfo.ifidx) + " encrypt: " + String(peerInfo.encrypt) + "\n");
     logToAll(buf);
     request->send_P(200, "text/plain", buf.c_str());
-    buf = sBuf = String();
+    buf = String();
   });
 
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request) {

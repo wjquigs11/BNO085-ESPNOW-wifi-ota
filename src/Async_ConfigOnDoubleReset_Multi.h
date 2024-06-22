@@ -114,7 +114,7 @@
   #endif
   //////
 
-  #define LED_BUILTIN       2
+  //#define LED_BUILTIN       2
   #define LED_ON            HIGH
   #define LED_OFF           LOW
 
@@ -242,7 +242,7 @@ typedef struct
   String wifi_pw;
 }  WiFi_Credentials_String;
 
-#define NUM_WIFI_CREDENTIALS      2
+#define NUM_WIFI_CREDENTIALS      3
 
 // Assuming max 49 chars
 #define TZNAME_MAX_LEN            50
@@ -315,7 +315,7 @@ extern bool initialConfig;    // = false;
 #if ( USE_DHCP_IP )
   // Use DHCP
   #if (_ESPASYNC_WIFIMGR_LOGLEVEL_ > 3)
-    #warning Using DHCP IP
+    //#warning Using DHCP IP
   #endif
 
   extern IPAddress stationIP;   //   = IPAddress(0, 0, 0, 0);

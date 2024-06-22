@@ -1,4 +1,10 @@
-
+/*
+If reset pressed twice, goes into wifi config mode
+After wifi network(s) are selected, saves to a file on SPIFFS
+I also secretly add another SSID for ESPwind, in case there is no local network on the boat.
+The compass will connect to ESPwind last if it's available, 
+so the wind correction controller can send commands to this ESP32
+*/
 #if !( defined(ESP8266) ||  defined(ESP32) )
   #error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
 #endif
@@ -60,7 +66,7 @@ bool initialConfig;    // = false;
 #if ( USE_DHCP_IP )
   // Use DHCP
   #if (_ESPASYNC_WIFIMGR_LOGLEVEL_ > 3)
-    #warning Using DHCP IP
+    //#warning Using DHCP IP
   #endif
 
   IPAddress stationIP   = IPAddress(0, 0, 0, 0);
@@ -171,9 +177,10 @@ uint8_t connectMultiWiFi()
 
   for (uint8_t i = 0; i < NUM_WIFI_CREDENTIALS; i++)
   {
+    //Serial.printf("SSID: %s\n", WM_config.WiFi_Creds[i].wifi_ssid);
     // Don't permit NULL SSID and password len < MIN_AP_PASSWORD_SIZE (8)
-    if ( (String(WM_config.WiFi_Creds[i].wifi_ssid) != "")
-         && (strlen(WM_config.WiFi_Creds[i].wifi_pw) >= MIN_AP_PASSWORD_SIZE) )
+    if ( (String(WM_config.WiFi_Creds[i].wifi_ssid) != ""))
+               //&& (strlen(WM_config.WiFi_Creds[i].wifi_pw) >= MIN_AP_PASSWORD_SIZE) )
     {
       LOGERROR3(F("* Additional SSID = "), WM_config.WiFi_Creds[i].wifi_ssid, F(", PW = "), WM_config.WiFi_Creds[i].wifi_pw );
     }
@@ -375,6 +382,10 @@ bool loadConfigData()
     displayIPConfigStruct(WM_STA_IPconfig);
     //////
 
+    for (int i=0; i<NUM_WIFI_CREDENTIALS; i++) {
+      Serial.printf("wifi creds: %s\n", WM_config.WiFi_Creds[i].wifi_ssid);
+    }
+
     return true;
   }
   else
@@ -392,6 +403,10 @@ void saveConfigData()
 
   if (file)
   {
+    // mod: add "ESPwind" as 3rd AP to check, in case others aren't available and controller is in AP mode
+    strcpy(WM_config.WiFi_Creds[NUM_WIFI_CREDENTIALS-1].wifi_ssid,"ESPwind");
+    strcpy(WM_config.WiFi_Creds[NUM_WIFI_CREDENTIALS-1].wifi_pw,"password");
+  
     WM_config.checksum = calcChecksum( (uint8_t*) &WM_config, sizeof(WM_config) - sizeof(WM_config.checksum) );
 
     file.write((uint8_t*) &WM_config, sizeof(WM_config));
