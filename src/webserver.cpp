@@ -12,9 +12,9 @@
 #include <Preferences.h>
 #include <SPIFFS.h>
 #include <math.h>
-#include "Async_ConfigOnDoubleReset_Multi.h"
 #include "compass.h"
-#include <esp_now.h>
+//#include <esp_now.h>
+#include <ReactESP.h>
 
 double rad=0.01745;
 
@@ -25,6 +25,9 @@ extern bool serverStarted;
 extern AsyncEventSource events;
 extern JSONVar readings;
 extern String host;
+using namespace reactesp;
+extern ReactESP app;
+extern RepeatReaction* n2kReact;
 
 // Timer variables
 #define DEFDELAY 1000
@@ -39,54 +42,65 @@ float calculateHeading2(float r, float i, float j, float k);
 void setReports();
 extern float heading, heading2, accuracy;
 
-extern esp_now_peer_info_t peerInfo;
+void logToAll(String S);
+float getCompassHeading(int variation, int orientation);
+void SendN2kCompass(float heading);
 
 // Get Sensor Readings and return JSON object
 String getSensorReadings() {
   // readings set in getMastHeading()
-  //readings["sensor"] = "sensor";
   String jsonString = JSON.stringify(readings);
-  //Serial.println(readings);
+  //logToAll("gSreadings: " + jsonString);
   return jsonString;
 }
 
-// Replaces placeholder with DHT values
-String processor(const String& var){
-  //Serial.println(var);
-  if(var == "VARIATION"){
+String processor(const String& var) {
+  Serial.println(var);
+  if(var == "VARIATION") {
     return String(compassParams.variation);
   }
-  else if(var == "ORIENTATION"){
+  else if(var == "ORIENTATION") {
     return String(compassParams.orientation);
   }
-  else if(var == "TIMERDELAY"){
+  else if(var == "TIMERDELAY") {
     return String(WebTimerDelay);
+  }
+  else if(var == "FREQUENCY") {
+    return String(compassParams.frequency);
   }
   return String();
 }
 
-void logToAll(String S);
-
 void startWebServer() {
-  Serial.println("starting web server");
+  logToAll("starting web server");
 
   // start serving from SPIFFS
   server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
   server.serveStatic("/", SPIFFS, "/");
 
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
+    logToAll("index.html");
+    request->send(SPIFFS, "/index.html", "text/html", false, processor);
+  });
+
   // Request latest sensor readings
   server.on("/readings", HTTP_GET, [](AsyncWebServerRequest *request) {
     String json = getSensorReadings();
     //logToAll("getSensorReadings\n");
+    //logToAll(readings);
     request->send(200, "application/json", json);
     json = String();
   });
 
+  server.on("/compass", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(SPIFFS, "/index.html", "text/html");
+  });
+
   server.on("/host", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String buf = "hostname: " + host + ", variation: " + String(compassParams.variation) + ", orientation: " + String(compassParams.orientation) + ", timerdelay: " + String(WebTimerDelay) + "\n";
+    String buf = "hostname: " + host + ", variation: " + String(compassParams.variation) + ", orientation: " + String(compassParams.orientation) + ", timerdelay: " + String(WebTimerDelay) + ", frequency: " + String(compassParams.frequency) + "\n";
     buf += "ESP local MAC addr: " + String(WiFi.macAddress() + "\n");
     logToAll(buf);
-    request->send_P(200, "text/plain", buf.c_str());
+    request->send(200, "text/plain", buf.c_str());
     buf = String();
   });
 
@@ -128,12 +142,23 @@ void startWebServer() {
       response = "change hostname to " + host + "\n";
       logToAll(response);
       preferences.putString("hostname",host);
+      logToAll("preferences " + preferences.getString("hostname", "unknown") + "\n");
     }  else if (request->hasParam("frequency")) {
       compassParams.frequency = atoi(request->getParam("frequency")->value().c_str());
+      if (compassParams.frequency < BNOREADRATE) compassParams.frequency = BNOREADRATE;
       Serial.printf("frequency %d\n", compassParams.frequency);
       response = "change frequency to " + String(compassParams.frequency) + "\n";
       logToAll(response);
       preferences.putInt("frequency",compassParams.frequency); 
+      logToAll("restarting N2K reaction");
+      // now delete/create reaction 
+      app.remove(n2kReact);
+      n2kReact = app.onRepeat(compassParams.frequency, []() {
+        heading = getCompassHeading(compassParams.variation, compassParams.orientation);
+#ifdef N2K
+        SendN2kCompass(heading);
+#endif
+      });
     }  else if (request->hasParam("toggle")) {
       Serial.printf("toggle %s\n", request->getParam("toggle")->value().c_str());
       compassParams.compassOnToggle = (request->getParam("toggle")->value().equals("true")) ? true : false;
@@ -143,7 +168,7 @@ void startWebServer() {
     } 
     //request->send(SPIFFS, "/index.html", "text/html");
     //request->redirect("/index.html");
-    request->send_P(200, "text/plain", response.c_str());
+    request->send(200, "text/plain", response.c_str());
     response = String();
   }); 
 
@@ -157,3 +182,5 @@ void startWebServer() {
   });
   server.addHandler(&events);
 }
+
+

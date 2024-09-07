@@ -1,13 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <title>ESP32 Compass</title>
+    <title>Mast Compass</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="stylesheet" type="text/css" href="style.css">
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-    <title>ESP32 Compass</title>
     <style>
       body {
         display: flex;
@@ -52,8 +51,10 @@
     </div>
     <div class="card">
       <!--p class="card-title"><i class="bearing-title" style="color:#059e8a;"></i> Bearing</p-->
-      <p class="bearing"><span id="bearing"></span>&deg;</p>
-      <!--p class="calibration"><span id="calibration"></span>stage</p-->
+      <p class="bearing">bearing (m): <span id="bearing"></span>&deg;</p>
+      <p>variation: <span id="variation"></span>&deg;</p>
+      <p class="bearing">orientation: <span id="orientation"></span>&deg;</p>
+      <p class="bearing">frequency: <span id="frequency"></span> (ms)</p>
       <img id="calibration" src="red.png" width="20" height="20" alt="calibration">
     </div>
 </body>
