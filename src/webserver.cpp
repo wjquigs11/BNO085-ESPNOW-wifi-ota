@@ -12,9 +12,13 @@
 #include <Preferences.h>
 #include <SPIFFS.h>
 #include <math.h>
+<<<<<<< HEAD
 #include "compass.h"
 //#include <esp_now.h>
 #include <ReactESP.h>
+=======
+#include "Async_ConfigOnDoubleReset_Multi.h"
+>>>>>>> 0c955d2d1ad7dff4ce77df20daa533db9d4424f2
 
 double rad=0.01745;
 
@@ -35,6 +39,7 @@ extern unsigned long lastTime;
 extern int WebTimerDelay;
 extern int minReadRate;
 
+<<<<<<< HEAD
 extern bool gameRot, absRot;
 
 float calculateHeading(float r, float i, float j, float k, int correction);
@@ -46,6 +51,8 @@ void logToAll(String S);
 float getCompassHeading(int variation, int orientation);
 void SendN2kCompass(float heading);
 
+=======
+>>>>>>> 0c955d2d1ad7dff4ce77df20daa533db9d4424f2
 // Get Sensor Readings and return JSON object
 String getSensorReadings() {
   // readings set in getMastHeading()
@@ -54,6 +61,7 @@ String getSensorReadings() {
   return jsonString;
 }
 
+<<<<<<< HEAD
 String processor(const String& var) {
   Serial.println(var);
   if(var == "VARIATION") {
@@ -61,6 +69,16 @@ String processor(const String& var) {
   }
   else if(var == "ORIENTATION") {
     return String(compassParams.orientation);
+=======
+// Replaces placeholder with DHT values
+String processor(const String& var){
+  //Serial.println(var);
+  if(var == "VARIATION"){
+    return String(0);
+  }
+  else if(var == "ORIENTATION"){
+    return String(1);
+>>>>>>> 0c955d2d1ad7dff4ce77df20daa533db9d4424f2
   }
   else if(var == "TIMERDELAY") {
     return String(WebTimerDelay);
@@ -97,8 +115,13 @@ void startWebServer() {
   });
 
   server.on("/host", HTTP_GET, [](AsyncWebServerRequest *request) {
+<<<<<<< HEAD
     String buf = "hostname: " + host + ", variation: " + String(compassParams.variation) + ", orientation: " + String(compassParams.orientation) + ", timerdelay: " + String(WebTimerDelay) + ", frequency: " + String(compassParams.frequency) + "\n";
     buf += "ESP local MAC addr: " + String(WiFi.macAddress() + "\n");
+=======
+    String buf = "hostname: " + host;
+    buf += " ESP local MAC addr: " + String(WiFi.macAddress() + "\n");
+>>>>>>> 0c955d2d1ad7dff4ce77df20daa533db9d4424f2
     logToAll(buf);
     request->send(200, "text/plain", buf.c_str());
     buf = String();
@@ -107,41 +130,13 @@ void startWebServer() {
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request) {
     logToAll("config\n");
     String response = "none";
-    if (request->hasParam("orientation")) {
-      compassParams.orientation = atoi(request->getParam("orientation")->value().c_str());
-      response = "change orientation to " + String(compassParams.orientation) + "\n";
-      logToAll(response);
-      preferences.putInt("orientation", compassParams.orientation);
-    } else if (request->hasParam("variation")) {
-      compassParams.variation = atoi(request->getParam("variation")->value().c_str());
-      response = "change variation to " + String(compassParams.variation) + "\n";
-      logToAll(response);
-      preferences.putInt("variation",compassParams.variation);
-    } else if (request->hasParam("timerdelay")) {
-      WebTimerDelay = atoi(request->getParam("timerdelay")->value().c_str());
-      if (WebTimerDelay < minReadRate) WebTimerDelay = minReadRate;
-      response = "change WebTimerDelay to " + String(WebTimerDelay) + "\n";
-      logToAll(response);
-      preferences.putInt("timerdelay",WebTimerDelay);
-    } else if (request->hasParam("gameRot")) {
-      gameRot = (request->getParam("gameRot")->value().equals("true")) ? true : false;
-      response = "change gameRot to " + String(gameRot) + "\n";
-      logToAll(response);
-      preferences.putBool("gameRot",gameRot);
-      setReports();
-    } else if (request->hasParam("absRot")) {
-      Serial.printf("absrot %s\n", request->getParam("absRot")->value().c_str());
-      absRot = (request->getParam("absRot")->value().equals("true")) ? true : false;
-      response = "change absRot to " + String(absRot) + "\n";
-      logToAll(response);
-      preferences.putBool("absRot",absRot);
-      setReports();
-    }  else if (request->hasParam("hostname")) {
+    if (request->hasParam("hostname")) {
       Serial.printf("hostname %s\n", request->getParam("hostname")->value().c_str());
       host = request->getParam("hostname")->value();
       response = "change hostname to " + host + "\n";
       logToAll(response);
       preferences.putString("hostname",host);
+<<<<<<< HEAD
       logToAll("preferences " + preferences.getString("hostname", "unknown") + "\n");
     }  else if (request->hasParam("frequency")) {
       compassParams.frequency = atoi(request->getParam("frequency")->value().c_str());
@@ -169,6 +164,10 @@ void startWebServer() {
     //request->send(SPIFFS, "/index.html", "text/html");
     //request->redirect("/index.html");
     request->send(200, "text/plain", response.c_str());
+=======
+    }
+    request->send_P(200, "text/plain", response.c_str());
+>>>>>>> 0c955d2d1ad7dff4ce77df20daa533db9d4424f2
     response = String();
   }); 
 
