@@ -6,6 +6,8 @@
 #include <WebSerial.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
+#include <esp_now.h>
+
 #include "compass.h"
 
 extern String host;
@@ -22,6 +24,11 @@ extern String can_state;
 #endif
 
 extern float heading, accuracy;
+
+#ifdef ESPNOW
+extern uint8_t serverAddress[];
+extern bool foundPeer;
+#endif
 
 void logToAll(String s);
 #define PRBUF 128
@@ -56,6 +63,21 @@ void i2cScan(TwoWire Wire) {
   } else {
     logToAll("done\n");
   }
+}
+
+String formatMacAddress(const String& macAddress) {
+  String result = "{";
+  int len = macAddress.length();
+  
+  for (int i = 0; i < len; i += 3) {
+    if (i > 0) {
+      result += ", ";
+    }
+    result += "0x" + macAddress.substring(i, i + 2);
+  }
+  
+  result += "};";
+  return result;
 }
 
 void WebSerialonMessage(uint8_t *data, size_t len) {
@@ -139,9 +161,25 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
 #endif
       sprintf(prbuf, "heading: %.2f d, %0.2f r, accuracy %.2f/%.2f r/d, cal status %d\n", heading, heading*DEGTORAD, accuracy, accuracy*180.0/M_PI, calStatus);
       logToAll(prbuf);
-      buf = "wifi: " + WiFi.SSID();
-      logToAll(buf);
       logToAll(JSON.stringify(readings));
+      buf = String();
+      return;
+    }
+    if (words[i].equals("wificonfig")) {
+      String buf = "hostname: " + host;
+      buf += " wifi: " + WiFi.SSID();
+      buf += " ip: " + WiFi.localIP().toString();
+      buf += "  MAC addr: " + formatMacAddress(WiFi.macAddress());
+      logToAll(buf);
+      if (foundPeer) {
+        buf = "peer: ";
+        for (int i = 0; i < ESP_NOW_ETH_ALEN; i++) { 
+          if (i > 0) buf += ":";
+          buf += String(serverAddress[i], HEX);
+          if (buf.length() == 1) buf = "0" + buf;
+        } 
+        logToAll(buf);
+      } else logToAll("no ESPNOW peer");
       buf = String();
       return;
     }

@@ -1,4 +1,3 @@
-
 #include <Arduino.h>
 #include <Arduino_JSON.h>
 #include <Wire.h>
@@ -19,6 +18,8 @@
 #include <Adafruit_SSD1306.h>
 #include "elapsedMillis.h"
 #include <NMEA2000_esp32.h>
+#include <NTPClient.h>
+
 #include "compass.h"
 
 File consLog;
@@ -32,43 +33,17 @@ float lastValue = 0;
 
 Preferences preferences;
 
+bool initWiFi();
+void startAP();
+
 #define HTTP_PORT 80
-AsyncWebServer server(HTTP_PORT);
-bool serverStarted = false;
-const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
-AsyncEventSource events("/events");
-extern void startWebServer();
-String host = "mastcomp";
-JSONVar readings;
+extern AsyncWebServer server;
+extern bool serverStarted;
+extern AsyncEventSource events;
+void startWebServer();
+extern String host;
+extern JSONVar readings;
 String getSensorReadings();
-
-// Search for parameter in HTTP POST request
-const char* PARAM_INPUT_1 = "ssid";
-const char* PARAM_INPUT_2 = "pass";
-const char* PARAM_INPUT_3 = "ip";
-const char* PARAM_INPUT_4 = "gateway";
-
-#define MAX_NETS 2
-int num_nets;
-String ssid[MAX_NETS] = {"null8chars", "null8chars"};
-String pass[MAX_NETS];
-String ip[MAX_NETS];
-String gateway[MAX_NETS];
-
-
-// File paths to save input values permanently
-const char* ssidPath = "/ssid.txt";
-const char* passPath = "/pass.txt";
-const char* ipPath = "/ip.txt";
-const char* gatewayPath = "/gateway.txt";
-
-IPAddress localIP;
-//IPAddress localIP(192, 168, 1, 200); // hardcoded
-
-// Set your Gateway IP address
-IPAddress localGateway;
-//IPAddress localGateway(192, 168, 1, 1); //hardcoded
-IPAddress subnet(255, 255, 0, 0);
 
 bool gameRot, absRot;
 
@@ -105,13 +80,12 @@ Adafruit_SSD1306 *display;
 Adafruit_BNO08x bno08x(RESET);
 sh2_SensorValue_t sensorValue;
 bool compassReady = false;
-control_s compassParams;
+extern compass_s compassParams;
 
 // timing
 #define DEFDELAY 50 // for compass driver update
 unsigned long WebTimerDelay = 100; // for display
 unsigned long previousMillis, previousDisplay, previousReading;
-unsigned int readingId = 0;
 //int minReadRate = BNOREADRATE;
 int minReadRate = DEFDELAY;
 unsigned long currentMillis = millis();
@@ -125,207 +99,15 @@ void setupN2K();
 extern tNMEA2000 *n2kesp;
 #endif
 
-void logToAll(String S);
-
-String readFile(fs::FS &fs, const char * path){
-  Serial.printf("Reading file: %s\r\n", path);
-
-  File file = fs.open(path);
-  if(!file || file.isDirectory()){
-    Serial.println("- failed to open file for reading");
-    return String();
-  }
-  
-  String fileContent;
-  while(file.available()){
-    fileContent = file.readStringUntil('\n');
-    break;     
-  }
-  return fileContent;
-}
-
-void writeFile(fs::FS &fs, const char * path, const char * message){
-  Serial.printf("Writing file: %s\r\n", path);
-
-  File file = fs.open(path, FILE_WRITE);
-  if(!file){
-    Serial.println("- failed to open file for writing");
-    return;
-  }
-  if(file.print(message)){
-    Serial.println("- file written");
-  } else {
-    Serial.println("- write failed");
-  }
-}
-
-bool readWiFi() {
-  File file = SPIFFS.open(ssidPath);
-  if(!file || file.isDirectory()) {
-    logToAll("failed to open ssid for reading");
-    return false;
-  }
-  int i=0;
-  while(file.available()) {
-    ssid[i] = file.readStringUntil('\n');
-    logToAll("found SSID " + ssid[i]);
-    i++;
-  }
-  num_nets=i;
-  i=0;
-  file = SPIFFS.open(passPath);
-  if(!file || file.isDirectory()) {
-    logToAll("failed to open pass for reading");
-    return false;
-  }
-  i=0;
-  while(file.available()) {
-    pass[i] = file.readStringUntil('\n');
-    logToAll("found passwd " + pass[i]);
-    i++;
-  }
-  if (i != num_nets) {
-    logToAll("Number of SSIDs and passwords do not match");
-    return false;
-  }
-  i=0;
-  file = SPIFFS.open(ipPath);
-  if(!file || file.isDirectory()) {
-    logToAll("failed to open IP for reading (ok)");
-  }
-  i=0;
-  while(file.available()) {
-    ip[i++] = file.readStringUntil('\n');
-  }
-  i=0;
-  file = SPIFFS.open(gatewayPath);
-  if(!file || file.isDirectory()) {
-    logToAll("failed to open gateway for reading (ok)");
-  }
-  i=0;
-  while(file.available()) {
-    gateway[i++] = file.readStringUntil('\n');
-  }
-  logToAll("found " + String(num_nets) + " networks");
-  for (i=0; i<num_nets; i++) {
-    logToAll("wifi[" + String(i) + "]: " + ssid[i] + " " + pass[i] + " " + ip[i] + " " + gateway[i]);
-  }
-  //logToAll("return readwifi");
-  return true;
-}
-
-bool initWiFi() {
-
-  int num_tries = 0;
-  const int MAX_TRIES = 5;
-
-  if (!readWiFi()) {
-    Serial.println("Failed to read WiFi credentials");
-    return false;
-  }
-  WiFi.mode(WIFI_STA);
-  for (int i=0; i<num_nets; i++) {
-    Serial.printf("Found SSID %d: %s\n", i, ssid[i].c_str());
-    if(ssid[i]=="") {
-      Serial.println("Undefined SSID.");
-      return false;
-    }
-    localIP.fromString(ip[i].c_str());
-    localGateway.fromString(gateway[i].c_str());
-    if (!WiFi.config(localIP, localGateway, subnet)) {
-      Serial.println("STA Failed to configure");
-      return false;
-    }
-    Serial.printf("Connecting to WiFi %s with pass %s\n", ssid[i].c_str(), pass[i].c_str());
-    WiFi.begin(ssid[i].c_str(), pass[i].c_str());
-
-    unsigned long currentMillis = millis();
-    previousMillis = currentMillis;
-
-    while(WiFi.status() != WL_CONNECTED && num_tries++ < MAX_TRIES) {
-      delay(1000);
-      Serial.print(".");
-      currentMillis = millis();
-      if (currentMillis - previousMillis >= interval) {
-        Serial.println("Failed to connect.");
-        //return false;
-      }
-    }
-    num_tries = 0;
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.print(" connected: ");
-      Serial.println(WiFi.localIP());
-      return true;
-    }
-  }
-  return false;
-}
-
-void startAP() {
-    // Connect to Wi-Fi network with SSID and password
-    logToAll("Setting AP (Access Point)");
-    // NULL sets an open Access Point
-    WiFi.softAP("ESP-WIFI-MANAGER", NULL);
-
-    IPAddress IP = WiFi.softAPIP();
-    logToAll("AP IP address: " + IP.toString());
-
-    // Web Server Root URL
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-      request->send(SPIFFS, "/wifimanager.html", "text/html");
-    });
-  
-    server.serveStatic("/", SPIFFS, "/");
-    
-    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
-      int params = request->params();
-      for(int i=0;i<params;i++){
-        const AsyncWebParameter* p = request->getParam(i);
-        if(p->isPost()) {
-          Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
-#if 0
-          // HTTP POST ssid value
-          if (p->name() == PARAM_INPUT_1) {
-            ssid = p->value().c_str();
-            Serial.print("SSID set to: ");
-            Serial.println(ssid);
-            // Write file to save value
-            writeFile(SPIFFS, ssidPath, ssid.c_str());
-          }
-          // HTTP POST pass value
-          if (p->name() == PARAM_INPUT_2) {
-            pass = p->value().c_str();
-            Serial.print("Password set to: ");
-            Serial.println(pass);
-            // Write file to save value
-            writeFile(SPIFFS, passPath, pass.c_str());
-          }
-          // HTTP POST ip value
-          if (p->name() == PARAM_INPUT_3) {
-            ip = p->value().c_str();
-            Serial.print("IP Address set to: ");
-            Serial.println(ip);
-            // Write file to save value
-            writeFile(SPIFFS, ipPath, ip.c_str());
-          }
-          // HTTP POST gateway value
-          if (p->name() == PARAM_INPUT_4) {
-            gateway = p->value().c_str();
-            Serial.print("Gateway set to: ");
-            Serial.println(gateway);
-            // Write file to save value
-            writeFile(SPIFFS, gatewayPath, gateway.c_str());
-          }
-          //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
+#ifdef ESPNOW
+void setupESPNOW(const char *ssid);
+void loopESPNOW();
 #endif
-        }
-      }
-      request->send(200, "text/plain", "Done. ESP will restart, connect to your router");
-      delay(3000);
-      ESP.restart();
-    });
-    server.begin();
-}
+
+// Define NTP Client to get time
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
+
 
 void ToggleLed() {
   static bool led_state = false;
@@ -549,6 +331,10 @@ if (RESET>0) { // init compass if we have a RESET pin
     startAP();
   }
 
+#ifdef ESPNOW
+  setupESPNOW(WiFi.SSID().c_str());
+#endif
+
   // start a console.log file in case we crash before Webserial starts
   if (SPIFFS.exists("/console.log")) {
     SPIFFS.remove("/console.log");
@@ -591,7 +377,8 @@ if (RESET>0) { // init compass if we have a RESET pin
   //Serial.printf("absRot %d\n", absRot);
   host = preferences.getString("hostname", host);
   logToAll("hostname: " + host + "\n");
-  
+  // reading ESPNOW peer MAC in espnow.cpp
+
   if (!MDNS.begin(host.c_str()))
     logToAll(F("Error starting MDNS responder\n"));
   else {
@@ -611,6 +398,12 @@ if (RESET>0) { // init compass if we have a RESET pin
       logToAll(MDNS.hostname(i) + " (" + String(MDNS.IP(i)) + ":" + String(MDNS.port(i)) + ")\n");
     }
   }
+
+  // Update the time
+  while(!timeClient.update()) {
+      timeClient.forceUpdate();
+  }
+  logToAll(timeClient.getFormattedDate());
 
   ElegantOTA.begin(&server);
 
@@ -653,19 +446,20 @@ if (RESET>0) { // init compass if we have a RESET pin
 #endif
   });  
 
-#ifdef N2K
-  Serial.printf("starting N2K parse reaction\n");
-  app.onRepeat(1, []() {
+  app.onRepeat(100, []() {
     //PollCANStatus();
+#ifdef N2K
     n2kesp->ParseMessages();
-  });
 #endif
+#ifdef ESPNOW
+    loopESPNOW();
+#endif
+  });
 
   app.onRepeat(100, []() {
     ElegantOTA.loop();  
     WebSerial.loop();
   });
-
 
 #ifdef SH_ESP32
   // update results
