@@ -25,7 +25,7 @@
 File consLog;
 using namespace reactesp;
 ReactESP app;
-RepeatReaction* n2kReact;
+RepeatReaction* checkCompassReact;
 
 float lastValue = 0;
 
@@ -152,7 +152,7 @@ void PollCANStatus() {
 void setReports(void) {
   Serial.println("Setting desired reports");
   if (gameRot)
-    if (!bno08x.enableReport(SH2_GAME_ROTATION_VECTOR))
+    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_RV))
       Serial.println("Could not enable game vector");
     else
       Serial.println("enabled game vector");
@@ -195,7 +195,7 @@ float getCompassHeading(int variation, int orientation) {
    *   3 - Accuracy high
    */
   switch (sensorValue.sensorId) {
-  case SH2_GAME_ROTATION_VECTOR:
+  case SH2_ARVR_STABILIZED_RV:
     if (gameRot) {
       heading = calculateHeading(sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k, variation + orientation);
 #ifdef DEBUG
@@ -436,10 +436,7 @@ if (RESET>0) { // init compass if we have a RESET pin
     consLog.flush();
 });
 
-#ifdef N2K
-  Serial.printf("starting N2K xmit reaction\n");
-#endif
-  n2kReact = app.onRepeat(compassParams.frequency, []() {
+  checkCompassReact = app.onRepeat(compassParams.frequency, []() {
     heading = getCompassHeading(compassParams.variation, compassParams.orientation);
 #ifdef N2K
     SendN2kCompass(heading);

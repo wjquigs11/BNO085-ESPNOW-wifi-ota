@@ -27,7 +27,7 @@ extern JSONVar readings;
 extern String host;
 using namespace reactesp;
 extern ReactESP app;
-extern RepeatReaction* n2kReact;
+extern RepeatReaction* checkCompassReact;
 
 // Timer variables
 #define DEFDELAY 1000
@@ -121,10 +121,10 @@ void startWebServer() {
       response = "change frequency to " + String(compassParams.frequency) + "\n";
       logToAll(response);
       preferences.putInt("frequency",compassParams.frequency); 
-      logToAll("restarting N2K reaction");
+      logToAll("restarting compass check reaction");
       // now delete/create reaction 
-      app.remove(n2kReact);
-      n2kReact = app.onRepeat(compassParams.frequency, []() {
+      app.remove(checkCompassReact);
+      checkCompassReact = app.onRepeat(compassParams.frequency, []() {
         heading = getCompassHeading(compassParams.variation, compassParams.orientation);
 #ifdef N2K
         SendN2kCompass(heading);

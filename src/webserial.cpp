@@ -28,6 +28,7 @@ extern float heading, accuracy;
 #ifdef ESPNOW
 extern uint8_t serverAddress[];
 extern bool foundPeer;
+extern bool espnowtoggle;
 #endif
 
 void logToAll(String s);
@@ -181,6 +182,11 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
         logToAll(buf);
       } else logToAll("no ESPNOW peer");
       buf = String();
+      return;
+    }
+    if (words[i].equals("espnowtoggle")) {
+      espnowtoggle = !espnowtoggle;
+      logToAll("espnowtoggle " + String(espnowtoggle));
       return;
     }
     logToAll("Unknown command: " + words[i]);

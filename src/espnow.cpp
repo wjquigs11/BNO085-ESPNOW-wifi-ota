@@ -21,6 +21,7 @@ extern sh2_SensorValue_t sensorValue;
 #ifdef ESPNOW
 unsigned int readingId = 0;
 extern Preferences preferences;
+bool espnowtoggle;
 
 // ESPNOW
 // Set your Board ID (ESP32 Sender #1 = BOARD_ID 1, ESP32 Sender #2 = BOARD_ID 2, etc)
@@ -54,7 +55,7 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     //Serial.printf("sendgood: %d, sendbad: %d, rate: %0.2f\n", sendgood, sendbad, (float)(sendgood/(sendgood+sendbad)));
     float rate = ((float)sendgood/(sendgood+sendbad));
     if ((sendgood+sendbad) % 100 == 1) {
-      logToAll("sendgood: " + String(sendgood) + " sendbad: " + String(sendbad) + " rate: " + String(rate));
+      logToAll(String(millis()) + " sendgood: " + String(sendgood) + " sendbad: " + String(sendbad) + " rate: " + String(rate));
     }
 }
 
@@ -154,7 +155,7 @@ void loopESPNOWcontrol() {
 }
 
 void loopESPNOW() {
-  if (foundPeer) {
+  if (foundPeer && espnowtoggle) {
     //Serial.println("sending sensor values");
     esp_err_t result = esp_now_send(serverAddress, (uint8_t *) &sensorValue, sizeof(sensorValue));
     if (result == ESP_OK) {
