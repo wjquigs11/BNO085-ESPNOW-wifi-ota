@@ -29,6 +29,8 @@ extern float heading, accuracy;
 extern uint8_t serverAddress[];
 extern bool foundPeer;
 extern bool espnowtoggle;
+extern int totalReports;
+extern int goodReports;
 #endif
 
 void logToAll(String s);
@@ -81,6 +83,10 @@ String formatMacAddress(const String& macAddress) {
   return result;
 }
 
+String commandList[] = {"?", "format", "restart", "ls", "scan", "hostname", "status", "wificonfig", "espnowtoggle"};
+#define ASIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+String words[10]; // Assuming a maximum of 10 words
+
 void WebSerialonMessage(uint8_t *data, size_t len) {
   Serial.printf("Received %lu bytes from WebSerial: ", len);
   Serial.write(data, len);
@@ -102,16 +108,12 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
     }
   }
   for (int i = 0; i < wordCount; i++) {
+    int j;
     WebSerial.println(words[i]);
     if (words[i].equals("?")) {
-      WebSerial.println("restart");
-      WebSerial.println("format");
-      WebSerial.println("ls");
-      WebSerial.println("scan (i2c)");
-      WebSerial.println("hostname");
-      WebSerial.println("status");
-      WebSerial.println("wificonfig");
-      return;
+      for (j = 1; j < ASIZE(commandList); j++) {
+        WebSerial.println(String(j) + ":" + commandList[j]);
+      }
     }
     if (words[i].equals("format")) {
       SPIFFS.format();
@@ -163,6 +165,7 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       sprintf(prbuf, "heading: %.2f d, %0.2f r, accuracy %.2f/%.2f r/d, cal status %d\n", heading, heading*DEGTORAD, accuracy, accuracy*180.0/M_PI, calStatus);
       logToAll(prbuf);
       logToAll(JSON.stringify(readings));
+      logToAll("compass reports total: " + String(totalReports) + " good: " + String(goodReports));
       buf = String();
       return;
     }

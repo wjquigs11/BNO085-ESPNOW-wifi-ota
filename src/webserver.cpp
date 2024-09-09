@@ -85,8 +85,8 @@ void startWebServer() {
 
   // Request latest sensor readings
   server.on("/readings", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String json = getSensorReadings();
     //logToAll("getSensorReadings\n");
+    String json = getSensorReadings();
     //logToAll(readings);
     request->send(200, "application/json", json);
     json = String();
@@ -136,7 +136,11 @@ void startWebServer() {
       response = "change toggle to " + String(compassParams.compassOnToggle) + "\n";
       logToAll(response);
       preferences.putBool("toggle",compassParams.compassOnToggle);
-    } 
+    } else if (request->hasParam("orientation")) {
+      compassParams.orientation = atoi(request->getParam("orientation")->value().c_str());
+      logToAll("change orientation to " + String(compassParams.orientation));
+      preferences.putInt("orientation",compassParams.orientation); 
+    }
     //request->send(SPIFFS, "/index.html", "text/html");
     //request->redirect("/index.html");
     request->send(200, "text/plain", response.c_str());

@@ -152,7 +152,7 @@ void PollCANStatus() {
 void setReports(void) {
   Serial.println("Setting desired reports");
   if (gameRot)
-    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_RV))
+    if (!bno08x.enableReport(SH2_GAME_ROTATION_VECTOR))
       Serial.println("Could not enable game vector");
     else
       Serial.println("enabled game vector");
@@ -170,9 +170,14 @@ void setReports(void) {
 // -2.0 = minimum delay in case displayDelay is set too low
 // -3.0 = error reading sensor
 // -4.0 = unexpected report from sensor
+int totalReports;
+int goodReports;
+
 float getCompassHeading(int variation, int orientation) {
-  if (!compassReady)
-    return -1.0;
+  float retcode = -9.9;
+  if (!compassReady) {
+    return -1.0;    
+  }
   unsigned long currentMillis = millis();
   unsigned long deltaM = currentMillis - previousReading;
   if (deltaM < BNOREADRATE) {
@@ -195,17 +200,19 @@ float getCompassHeading(int variation, int orientation) {
    *   3 - Accuracy high
    */
   switch (sensorValue.sensorId) {
-  case SH2_ARVR_STABILIZED_RV:
+  case SH2_GAME_ROTATION_VECTOR:
+    goodReports++; totalReports++;
     if (gameRot) {
       heading = calculateHeading(sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k, variation + orientation);
 #ifdef DEBUG
-      printf("game vector %.2f %.2f %.2f %.2f ", sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k);
-      printf("heading: %.2f deg\n", heading);
+      Serial.printf("%d game vector %.2f %.2f %.2f %.2f ", sensorValue.sensorId, sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k);
+      //Serial.printf("heading: %.2f deg\n", heading);
 #endif
-      return heading;
+      retcode = heading;
     }
     break;
   case SH2_ROTATION_VECTOR:
+    goodReports++; totalReports++;
     calStatus = sensorValue.status;
     if (absRot) {
       accuracy = sensorValue.un.rotationVector.accuracy;
@@ -217,23 +224,24 @@ float getCompassHeading(int variation, int orientation) {
       printf("rota vector status %d %.2f %.2f %.2f %.2f ", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
       printf("heading2: %.2f degrees, accuracy %.2f/%.2f r/d, status %d\n", heading2, accuracy, accuracy * 180.0 / M_PI, calStatus);
 #endif
-      // configure readings for web page server sent events (SSE)
-      readings["bearing"] = String(heading,0);
-      readings["variation"] = compassParams.variation;
-      readings["orientation"] = compassParams.orientation;
-      readings["frequency"] = compassParams.frequency;
-      readings["calstatus"] = calStatus;
-      //logToAll("readings: " + JSON.stringify(readings));
-      return heading;
+      retcode = heading;
     }
     break;
   default:
+    totalReports++;
     logToAll("unknown sensor ID: %d" + String(sensorValue.sensorId));
     break;
   }
+  // configure readings for web page server sent events (SSE)
+  readings["bearing"] = String(heading,0);
+  readings["variation"] = compassParams.variation;
+  readings["orientation"] = compassParams.orientation;
+  readings["frequency"] = compassParams.frequency;
+  readings["calstatus"] = calStatus;
+  //logToAll("readings: " + JSON.stringify(readings));
   if (gameRot && absRot)
     printf("difference %.2f\n", abs(heading - heading2));
-  return -4.0;
+  return retcode;
 }
 
 // Function to calculate tilt-compensated heading from a quaternion
@@ -305,14 +313,17 @@ if (RESET>0) { // init compass if we have a RESET pin
   if (!(compassReady = bno08x.begin_I2C(0x4B, &Wire1, 0)))
     i2cScan(Wire1);
 #else
-  if (!(compassReady = bno08x.begin_I2C(0x4A, &Wire, 0)))
+  compassReady = bno08x.begin_I2C(0x4A, &Wire, 0);
+  if (!compassReady) {
+    Serial.println("BNO08x not found");
     i2cScan(Wire);
+  }
 #endif
   if (compassReady) {
     logToAll("BNO08x Found\n");
     for (int n = 0; n < bno08x.prodIds.numEntries; n++) {
       String logString = "Part " + String(bno08x.prodIds.entry[n].swPartNumber) + ": Version :" + String(bno08x.prodIds.entry[n].swVersionMajor) + "." + String(bno08x.prodIds.entry[n].swVersionMinor) + "." + String(bno08x.prodIds.entry[n].swVersionPatch) + " Build " + String(bno08x.prodIds.entry[n].swBuildNumber);
-      logToAll(logString + "\n");
+      logToAll(logString);
     }
     setReports();
   }
@@ -438,6 +449,7 @@ if (RESET>0) { // init compass if we have a RESET pin
 
   checkCompassReact = app.onRepeat(compassParams.frequency, []() {
     heading = getCompassHeading(compassParams.variation, compassParams.orientation);
+    if (heading <-3) logToAll("heading error: " + String(heading));
 #ifdef N2K
     SendN2kCompass(heading);
 #endif
