@@ -7,15 +7,12 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
-#include <Adafruit_BNO08x.h>
 #include <math.h>
 #include <esp_wifi.h>
 #include <ElegantOTA.h>
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
 #include <ReactESP.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include "elapsedMillis.h"
 #include <NMEA2000_esp32.h>
 

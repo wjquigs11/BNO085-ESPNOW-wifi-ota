@@ -136,6 +136,16 @@ void startWebServer() {
       response = "change toggle to " + String(compassParams.compassOnToggle) + "\n";
       logToAll(response);
       preferences.putBool("toggle",compassParams.compassOnToggle);
+    } else if (request->hasParam("gamerot")) {
+      Serial.printf("gamerot %s\n", request->getParam("gamerot")->value().c_str());
+      gameRot = (request->getParam("gamerot")->value().equals("true")) ? true : false;
+      logToAll("change gameRot to " + String(gameRot));
+      preferences.putBool("gameRot",gameRot);
+    } else if (request->hasParam("absrot")) {
+      Serial.printf("absrot %s\n", request->getParam("absrot")->value().c_str());
+      absRot = (request->getParam("absrot")->value().equals("true")) ? true : false;
+      logToAll("change absRot to " + String(absRot));
+      preferences.putBool("absRot",absRot);
     } 
     //request->send(SPIFFS, "/index.html", "text/html");
     //request->redirect("/index.html");

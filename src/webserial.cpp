@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Arduino_JSON.h>
 #include <Wire.h>
-#include <Adafruit_BNO08x.h>
+#include <SparkFun_BNO08x_Arduino_Library.h>
 #include <math.h>
 #include <WebSerial.h>
 #include <Preferences.h>
@@ -33,6 +33,8 @@ extern bool foundPeer;
 void logToAll(String s);
 #define PRBUF 128
 char prbuf[PRBUF];
+
+extern BNO08x bno08x;
 
 void i2cScan(TwoWire Wire) {
   byte error, address;
@@ -80,6 +82,10 @@ String formatMacAddress(const String& macAddress) {
   return result;
 }
 
+String commandList[] = {"?", "format", "restart", "ls", "scan", "status", "readings", "mast", "lsap", "toggle", "gps", "webserver", "compass", "windrx", "espnow", "tare"};
+#define ASIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+String words[10]; // Assuming a maximum of 10 words
+
 void WebSerialonMessage(uint8_t *data, size_t len) {
   Serial.printf("Received %lu bytes from WebSerial: ", len);
   Serial.write(data, len);
@@ -87,7 +93,6 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
   WebSerial.println("Received Data...");
   String dataS = String((char*)data);
   // Split the String into an array of Strings using spaces as delimiters
-  String words[10]; // Assuming a maximum of 10 words
   int wordCount = 0;
   int startIndex = 0;
   int endIndex = 0;
@@ -100,18 +105,22 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       startIndex = endIndex + 1;
     }
   }
-  for (int i = 0; i < wordCount; i++) {
-    WebSerial.println(words[i]);
+  for (int i = 0; i < wordCount; i++) {   
+    WebSerial.println(words[i]); 
+    int j;
     if (words[i].equals("?")) {
-      WebSerial.println("restart");
-      WebSerial.println("format");
-      WebSerial.println("ls");
-      WebSerial.println("scan (i2c)");
-      WebSerial.println("hostname");
-      WebSerial.println("status");
-      WebSerial.println("wificonfig");
-      return;
+      for (j = 1; j < ASIZE(commandList); j++) {
+        WebSerial.println(String(j) + ":" + commandList[j]);
+      }
     }
+    if (words[i].toInt() > 0)
+      for (j = 1; j < ASIZE(commandList); j++) {
+        //WebSerial.println("j: " + String(j) + " " + commandList[j]);
+        if (words[i].toInt() == j) {
+          //Serial.printf("match %d %s %d %s\n", i, words[i].c_str(), j, commandList[j].c_str());
+          words[i] = commandList[j];
+        }
+      }
     if (words[i].equals("format")) {
       SPIFFS.format();
       WebSerial.println("SPIFFS formatted");
@@ -181,6 +190,11 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
         logToAll(buf);
       } else logToAll("no ESPNOW peer");
       buf = String();
+      return;
+    }
+    if (words[i].equals("tare")) {
+      if (bno08x.tareNow())
+        logToAll("tare successful");
       return;
     }
     logToAll("Unknown command: " + words[i]);

@@ -7,15 +7,13 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
-#include <Adafruit_BNO08x.h>
+#include <SparkFun_BNO08x_Arduino_Library.h>
 #include <math.h>
 #include <esp_wifi.h>
 #include <ElegantOTA.h>
 #include <ESPAsyncWebServer.h>
 #include <WebSerial.h>
 #include <ReactESP.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include "elapsedMillis.h"
 #include <NMEA2000_esp32.h>
 #include <NTPClient.h>
@@ -77,10 +75,13 @@ Adafruit_SSD1306 *display;
 //SDA 21
 //SCL 22
 #endif
-Adafruit_BNO08x bno08x(RESET);
+//Adafruit_BNO08x bno08x(RESET);
+BNO08x bno08x;
 sh2_SensorValue_t sensorValue;
 bool compassReady = false;
 extern compass_s compassParams;
+#define BNO08X_INT  -1
+#define BNO08X_RST  -1
 
 // timing
 #define DEFDELAY 50 // for compass driver update
@@ -152,10 +153,10 @@ void PollCANStatus() {
 void setReports(void) {
   Serial.println("Setting desired reports");
   if (gameRot)
-    if (!bno08x.enableReport(SH2_GAME_ROTATION_VECTOR))
-      Serial.println("Could not enable game vector");
+    if (!bno08x.enableReport(SENSOR_REPORTID_AR_VR_STABILIZED_ROTATION_VECTOR))
+      Serial.println("Could not enable ar/vr vector");
     else
-      Serial.println("enabled game vector");
+      Serial.println("enabled ar/vr vector");
   if (absRot)
     if (!bno08x.enableReport(SH2_ROTATION_VECTOR, 100))
       Serial.println("Could not enable rotation vector");
@@ -185,7 +186,7 @@ float getCompassHeading(int variation, int orientation) {
     Serial.print("sensor was reset ");
     setReports();
   }
-  if (!bno08x.getSensorEvent(&sensorValue)) {
+  if (!bno08x.getSensorEvent()) {
     return -3.0;
   }
   /* Status of a sensor
@@ -194,14 +195,23 @@ float getCompassHeading(int variation, int orientation) {
    *   2 - Accuracy medium
    *   3 - Accuracy high
    */
+  sensorValue.sensorId = bno08x.getSensorEventID();
+  sensorValue = bno08x.sensorValue;
   switch (sensorValue.sensorId) {
-  case SH2_GAME_ROTATION_VECTOR:
+  case SENSOR_REPORTID_AR_VR_STABILIZED_ROTATION_VECTOR:
     if (gameRot) {
-      heading = calculateHeading(sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k, variation + orientation);
+      calStatus = sensorValue.status;
+      heading = calculateHeading(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, variation + orientation);
 #ifdef DEBUG
-      printf("game vector %.2f %.2f %.2f %.2f ", sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k);
+      printf("stabilized vector %.2f %.2f %.2f %.2f ", sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k);
       printf("heading: %.2f deg\n", heading);
 #endif
+      // configure readings for web page server sent events (SSE)
+      readings["bearing"] = String(heading,0);
+      readings["variation"] = compassParams.variation;
+      readings["orientation"] = compassParams.orientation;
+      readings["frequency"] = compassParams.frequency;
+      readings["calstatus"] = calStatus;
       return heading;
     }
     break;
@@ -305,8 +315,11 @@ if (RESET>0) { // init compass if we have a RESET pin
   if (!(compassReady = bno08x.begin_I2C(0x4B, &Wire1, 0)))
     i2cScan(Wire1);
 #else
-  if (!(compassReady = bno08x.begin_I2C(0x4A, &Wire, 0)))
+  Wire.begin();
+  if ((compassReady = bno08x.begin(BNO08X, Wire, BNO08X_INT, BNO08X_RST)) == false) {
+    logToAll("BNO08x not detected\n");
     i2cScan(Wire);
+  }
 #endif
   if (compassReady) {
     logToAll("BNO08x Found\n");
@@ -330,10 +343,6 @@ if (RESET>0) { // init compass if we have a RESET pin
   } else {
     startAP();
   }
-
-#ifdef ESPNOW
-  setupESPNOW(WiFi.SSID().c_str());
-#endif
 
   // start a console.log file in case we crash before Webserial starts
   if (SPIFFS.exists("/console.log")) {
@@ -378,6 +387,10 @@ if (RESET>0) { // init compass if we have a RESET pin
   host = preferences.getString("hostname", host);
   logToAll("hostname: " + host + "\n");
   // reading ESPNOW peer MAC in espnow.cpp
+
+#ifdef ESPNOW
+  setupESPNOW(WiFi.SSID().c_str());
+#endif
 
   if (!MDNS.begin(host.c_str()))
     logToAll(F("Error starting MDNS responder\n"));
@@ -436,25 +449,24 @@ if (RESET>0) { // init compass if we have a RESET pin
     consLog.flush();
 });
 
-#ifdef N2K
-  Serial.printf("starting N2K xmit reaction\n");
-#endif
+
   n2kReact = app.onRepeat(compassParams.frequency, []() {
     heading = getCompassHeading(compassParams.variation, compassParams.orientation);
+    //Serial.printf("heading: %.2f\n", heading);
+#ifdef ESPNOW
+    loopESPNOW();
+#endif
 #ifdef N2K
     SendN2kCompass(heading);
 #endif
   });  
 
-  app.onRepeat(100, []() {
-    //PollCANStatus();
 #ifdef N2K
+  app.onRepeat(10, []() {
+    //PollCANStatus();
     n2kesp->ParseMessages();
-#endif
-#ifdef ESPNOW
-    loopESPNOW();
-#endif
   });
+#endif
 
   app.onRepeat(100, []() {
     ElegantOTA.loop();  

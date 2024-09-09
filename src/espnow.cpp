@@ -6,7 +6,7 @@
 #include <WiFiMulti.h>
 #include <Preferences.h>
 #include <SPIFFS.h>
-#include <Adafruit_BNO08x.h>
+#include <SparkFun_BNO08x_Arduino_Library.h>
 #include <math.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -58,6 +58,25 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
     }
 }
 
+bool registerPeer(const uint8_t * mac_addr) {
+  String peerInfoS;
+  memcpy(serverAddress, mac_addr, ESP_NOW_ETH_ALEN);
+  memcpy(peerInfo.peer_addr, mac_addr, ESP_NOW_ETH_ALEN);
+  peerInfo.encrypt = false;
+  peerInfo.channel = channel;
+  peerInfoS = "channel: " + String(peerInfo.channel) 
+                    + " ifidx: " + String(peerInfo.ifidx) 
+                    + " encrypt: " + String(peerInfo.encrypt);
+  logToAll(peerInfoS);
+  peerInfoS = String();
+  int err;      
+  if (err=esp_now_add_peer(&peerInfo) != ESP_OK) {  // succeeds even if peer_addr is null
+      logToAll("registerPeer: Failed to add peer: " + err);
+      return false;
+  } else logToAll("registerPeer: added ESPNOW peer");
+  return true;
+}
+
 void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { 
   String peerInfoS = "";
   for (int i = 0; i < ESP_NOW_ETH_ALEN; i++) {
@@ -68,23 +87,11 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   logToAll("ESPNOW got packet from: " + peerInfoS + " peer? " + String(foundPeer));
   if (!foundPeer) {
     // Register peer
-    memcpy(serverAddress, mac_addr, ESP_NOW_ETH_ALEN);
-    memcpy(peerInfo.peer_addr, mac_addr, ESP_NOW_ETH_ALEN);
-    peerInfo.encrypt = false;
-    peerInfo.channel = channel;
-    peerInfoS = "channel: " + String(peerInfo.channel) 
-                      + " ifidx: " + String(peerInfo.ifidx) 
-                      + " encrypt: " + String(peerInfo.encrypt);
-    logToAll(peerInfoS);
-    peerInfoS = String();
-    // Add peer  
-    int err;      
-    if (err=esp_now_add_peer(&peerInfo) != ESP_OK) {  // succeeds even if peer_addr is null
-        logToAll("Failed to add peer: " + err);
-        return;
-    } else logToAll("added ESPNOW peer");
-    foundPeer = true;
+    foundPeer = registerPeer(mac_addr);
     int b;
+#if 0
+    // store peer MAC in preferences
+    logToAll(String(preferences.begin("ESPcompass", false)));
     b = preferences.putBytes("peerMac", mac_addr, ESP_NOW_ETH_ALEN);
     if (b == 0)
       logToAll("failed to store peer MAC in preferences");
@@ -94,6 +101,16 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
       b = preferences.getBytes("peerMAC", peerMAC, ESP_NOW_ETH_ALEN);
       logToAll("retrieved peer MAC from preferences" + String(b));
     }
+#else
+    for (int i=0; i<ESP_NOW_ETH_ALEN; i++) {
+      b = preferences.putInt(String(i).c_str(), mac_addr[i]);
+      if (b == 0) logToAll("failed to store peer MAC[] in preferences " + String(i));
+    }
+    for (int i=0; i<ESP_NOW_ETH_ALEN; i++) {
+      b = preferences.getInt(String(i).c_str(), 0);
+      logToAll("peer mac[" + String(i) + "]: " + String(b, HEX));
+    }
+#endif
   } // else do something with received data after peering
 }
  
@@ -129,12 +146,25 @@ void setupESPNOW(const char *ssid) {
     esp_now_register_send_cb(OnDataSent);
     esp_now_register_recv_cb(OnDataRecv);
     // our first received message should be a broadcast; then we will establish peering
+#if 0
     if (preferences.isKey("peerMAC")) {
       preferences.getBytes("peerMAC", serverAddress, ESP_NOW_ETH_ALEN);
       foundPeer = true;
       logToAll("found peer from preferences");
     } else
       logToAll("no peer found in preferences");
+#else // incredible kludge because perferences.putBytes doesn't work
+    if (preferences.isKey("0")) {
+      logToAll("found peer from preferences");
+      char peermacS[32];
+      for (int i=0; i<ESP_NOW_ETH_ALEN; i++) {
+        serverAddress[i] = preferences.getInt(String(i).c_str());
+      }
+      sprintf(peermacS,"0x%x:0x%x:0x%x:0x%x:0x%x:0x%x",serverAddress[0],serverAddress[1],serverAddress[2],serverAddress[3],serverAddress[4],serverAddress[5]);
+      logToAll("peer mac: " + String(peermacS));
+    foundPeer = registerPeer(serverAddress);
+    }
+#endif
     // TBD need to add logic in case either side changes hardware
 }
 
