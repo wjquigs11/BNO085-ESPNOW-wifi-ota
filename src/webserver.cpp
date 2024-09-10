@@ -21,6 +21,7 @@ double rad=0.01745;
 extern Preferences preferences;     
 
 extern AsyncWebServer server;
+AsyncWebSocket ws("/ws");
 extern bool serverStarted;
 extern AsyncEventSource events;
 extern JSONVar readings;
@@ -157,5 +158,3 @@ void startWebServer() {
   });
   server.addHandler(&events);
 }
-
-
