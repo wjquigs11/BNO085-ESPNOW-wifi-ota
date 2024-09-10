@@ -32,6 +32,8 @@ extern bool espnowtoggle;
 extern int totalReports;
 extern int goodReports;
 #endif
+extern int reportType;
+extern Adafruit_BNO08x bno08x;
 
 void logToAll(String s);
 #define PRBUF 128
@@ -165,7 +167,12 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       sprintf(prbuf, "heading: %.2f d, %0.2f r, accuracy %.2f/%.2f r/d, cal status %d\n", heading, heading*DEGTORAD, accuracy, accuracy*180.0/M_PI, calStatus);
       logToAll(prbuf);
       logToAll(JSON.stringify(readings));
+#ifdef ESPNOW
       logToAll("compass reports total: " + String(totalReports) + " good: " + String(goodReports));
+      logToAll("espnowtoggle " + String(espnowtoggle));
+#endif
+      logToAll("reportType " + String(reportType,HEX));
+      WebSerial.flush();
       buf = String();
       return;
     }
@@ -175,6 +182,7 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       buf += " ip: " + WiFi.localIP().toString();
       buf += "  MAC addr: " + formatMacAddress(WiFi.macAddress());
       logToAll(buf);
+#ifdef ESPNOW
       if (foundPeer) {
         buf = "peer: ";
         for (int i = 0; i < ESP_NOW_ETH_ALEN; i++) { 
@@ -184,12 +192,28 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
         } 
         logToAll(buf);
       } else logToAll("no ESPNOW peer");
+#endif
       buf = String();
       return;
     }
+#ifdef ESPNOW
     if (words[i].equals("espnowtoggle")) {
       espnowtoggle = !espnowtoggle;
       logToAll("espnowtoggle " + String(espnowtoggle));
+      return;
+    }
+#endif
+    if (words[i].equals("rtype")) {
+      reportType = preferences.getInt("rtype", 0); // change after 1st write
+      if (!words[++i].isEmpty()) {
+        reportType = (int)strtol(words[i].c_str(), NULL, 16);
+        preferences.putInt("rtype", reportType);
+        WebSerial.printf("compass report type set to 0x%x\n", reportType);
+        if (!bno08x.enableReport(reportType))
+              WebSerial.printf("Could not enable local report 0x%x\n",reportType);
+      } else {
+        WebSerial.printf("compass report type is 0x%x\n",reportType);
+      }
       return;
     }
     logToAll("Unknown command: " + words[i]);

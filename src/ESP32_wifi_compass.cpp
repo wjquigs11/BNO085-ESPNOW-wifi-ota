@@ -80,7 +80,7 @@ Adafruit_SSD1306 *display;
 Adafruit_BNO08x bno08x(RESET);
 sh2_SensorValue_t sensorValue;
 bool compassReady = false;
-extern compass_s compassParams;
+compass_s compassParams;
 
 // timing
 #define DEFDELAY 50 // for compass driver update
@@ -103,6 +103,7 @@ extern tNMEA2000 *n2kesp;
 void setupESPNOW(const char *ssid);
 void loopESPNOW();
 #endif
+int reportType;
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
@@ -148,11 +149,22 @@ void PollCANStatus() {
 }
 #endif
 
-// BNO: define the sensor outputs we want to receive
-void setReports(void) {
-  Serial.println("Setting desired reports");
+// TBD!!!
+// set reports based on webserial input
+// create a new union for ESPNOW with control structure and data structure
+// control structure will indicate which report to use
+
+void setReports() {
+  logToAll("Setting compass report to: 0x" + String(reportType,HEX));
+  if (!bno08x.enableReport((sh2_SensorId_t)reportType)) {
+    logToAll("could not set report type: " + String(reportType,HEX));  
+    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_GRV))
+      logToAll("could not set report type (2): " + String(SH2_ARVR_STABILIZED_GRV,HEX));
+    else logToAll("enabled " + String(SH2_ARVR_STABILIZED_GRV,HEX));
+  }
+#if 0
   if (gameRot)
-    if (!bno08x.enableReport(SH2_GAME_ROTATION_VECTOR))
+    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_GRV))
       Serial.println("Could not enable game vector");
     else
       Serial.println("enabled game vector");
@@ -161,6 +173,7 @@ void setReports(void) {
       Serial.println("Could not enable rotation vector");
     else
       Serial.println("enabled abs rotation vector");
+#endif  
 }
 
 // get heading from the compass
@@ -201,31 +214,39 @@ float getCompassHeading(int variation, int orientation) {
    */
   switch (sensorValue.sensorId) {
   case SH2_GAME_ROTATION_VECTOR:
+  case SH2_GEOMAGNETIC_ROTATION_VECTOR:
     goodReports++; totalReports++;
-    if (gameRot) {
-      heading = calculateHeading(sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k, variation + orientation);
+    heading = calculateHeading(sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k, variation + orientation);
 #ifdef DEBUG
-      Serial.printf("%d game vector %.2f %.2f %.2f %.2f ", sensorValue.sensorId, sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k);
-      //Serial.printf("heading: %.2f deg\n", heading);
+    Serial.printf("%d game vector %.2f %.2f %.2f %.2f ", sensorValue.sensorId, sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k);
+    //Serial.printf("heading: %.2f deg\n", heading);
 #endif
-      retcode = heading;
-    }
+    retcode = heading;
+    calStatus = sensorValue.status;
+    accuracy = sensorValue.un.rotationVector.accuracy;
+    break;  
+    case SH2_ARVR_STABILIZED_GRV:
+    goodReports++; totalReports++;
+    heading = calculateHeading(sensorValue.un.arvrStabilizedGRV.real, sensorValue.un.arvrStabilizedGRV.i, sensorValue.un.arvrStabilizedGRV.j, sensorValue.un.arvrStabilizedGRV.k, variation + orientation);
+#ifdef DEBUG
+    //Serial.printf("%d ARVR_STAB_GRV %.2f %.2f %.2f %.2f ", sensorValue.sensorId, sensorValue.un.arvrStabilizedGRV.real, sensorValue.un.arvrStabilizedGRV.i, sensorValue.un.arvrStabilizedGRV.j, sensorValue.un.arvrStabilizedGRV.k);
+    Serial.printf("heading: %.2f deg\n", heading);
+#endif
+    retcode = heading;
     break;
   case SH2_ROTATION_VECTOR:
     goodReports++; totalReports++;
     calStatus = sensorValue.status;
-    if (absRot) {
-      accuracy = sensorValue.un.rotationVector.accuracy;
-      heading = calculateHeading(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, variation + orientation);
-      //Serial.printf("abs vector status %d %.2f %.2f %.2f %.2f\n", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
-      //logToAll("heading1: " + String(heading) + "  cal: " + calStatus + "\n");
+    accuracy = sensorValue.un.rotationVector.accuracy;
+    heading = calculateHeading(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, variation + orientation);
+    //Serial.printf("abs vector status %d %.2f %.2f %.2f %.2f\n", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
+    //logToAll("heading1: " + String(heading) + "  cal: " + calStatus + "\n");
 #ifdef DEBUG
-      heading2 = calculateHeading2(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, 0);
-      printf("rota vector status %d %.2f %.2f %.2f %.2f ", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
-      printf("heading2: %.2f degrees, accuracy %.2f/%.2f r/d, status %d\n", heading2, accuracy, accuracy * 180.0 / M_PI, calStatus);
+    heading2 = calculateHeading2(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, 0);
+    printf("rota vector status %d %.2f %.2f %.2f %.2f ", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
+    printf("heading2: %.2f degrees, accuracy %.2f/%.2f r/d, status %d\n", heading2, accuracy, accuracy * 180.0 / M_PI, calStatus);
 #endif
-      retcode = heading;
-    }
+    retcode = heading;
     break;
   default:
     totalReports++;
@@ -233,7 +254,7 @@ float getCompassHeading(int variation, int orientation) {
     break;
   }
   // configure readings for web page server sent events (SSE)
-  readings["bearing"] = String(heading,0);
+  readings["bearing"] = String(heading,2);
   readings["variation"] = compassParams.variation;
   readings["orientation"] = compassParams.orientation;
   readings["frequency"] = compassParams.frequency;
@@ -313,6 +334,8 @@ if (RESET>0) { // init compass if we have a RESET pin
   if (!(compassReady = bno08x.begin_I2C(0x4B, &Wire1, 0)))
     i2cScan(Wire1);
 #else
+  Wire.setClock(100000);  // slow clock to compensate for errors
+  Wire.setTimeOut(1000); // Set timeout to 1 second
   compassReady = bno08x.begin_I2C(0x4A, &Wire, 0);
   if (!compassReady) {
     Serial.println("BNO08x not found");
@@ -389,6 +412,8 @@ if (RESET>0) { // init compass if we have a RESET pin
   host = preferences.getString("hostname", host);
   logToAll("hostname: " + host + "\n");
   // reading ESPNOW peer MAC in espnow.cpp
+  reportType = preferences.getInt("rtype", SH2_GAME_ROTATION_VECTOR);
+  logToAll("reportType = 0x" + String(reportType,HEX));
 
   if (!MDNS.begin(host.c_str()))
     logToAll(F("Error starting MDNS responder\n"));

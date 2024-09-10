@@ -15,7 +15,6 @@
 
 void logToAll(String s);
 
-compass_s compassParams;  // we use this even with no ESPNOW
 extern sh2_SensorValue_t sensorValue;
 
 #ifdef ESPNOW
@@ -32,6 +31,10 @@ uint8_t serverAddress[] = {0xC8, 0x2E, 0x18, 0xEF, 0xFC, 0xD0}; // now set from 
 esp_now_peer_info_t peerInfo;
 bool foundPeer = false;
 int channel;
+extern compass_s compassParams;
+int sendgood, sendbad;
+int reportType; // which report do we want compass to generate? set by main processor (espwind)
+void setReports();
 
 int32_t getWiFiChannel(const char *ssid) {
   if (int32_t n = WiFi.scanNetworks()) {
@@ -44,7 +47,22 @@ int32_t getWiFiChannel(const char *ssid) {
   return 0;
 }
 
-int sendgood, sendbad;
+bool sendControl() {
+    //compassParams.id = BOARD_ID;
+    compassParams.heading = 100;
+    compassParams.accuracy = 1;
+    compassParams.calStatus = 1;
+    compassParams.readingId = readingId++;
+    // Send message via ESP-NOW
+    esp_err_t result = esp_now_send(serverAddress, (uint8_t *) &compassParams, sizeof(compassParams));
+    if (result == ESP_OK) {
+      logToAll("ESPNOW control sent with success");
+      return true;
+    } else {
+      logToAll("ESPNOW contol error sending the data: " + String(result));
+      return false;
+    }
+}
 
 // callback when data is sent
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -75,7 +93,8 @@ bool registerPeer(const uint8_t * mac_addr) {
       logToAll("registerPeer: Failed to add peer: " + err);
       return false;
   } else logToAll("registerPeer: added ESPNOW peer");
-  return true;
+  // send ACK to peer
+  return sendControl();
 }
 
 void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) { 
@@ -112,7 +131,13 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
       logToAll("peer mac[" + String(i) + "]: " + String(b, HEX));
     }
 #endif
-  } // else do something with received data after peering
+  } // do something with received data after peering
+  memcpy(&compassParams, incomingData, sizeof(compassParams));
+  if (compassParams.id) {
+    logToAll("setting report type to: 0x" + String(compassParams.id,HEX));
+      reportType = compassParams.id;
+      setReports();
+  }
 }
  
 void setupESPNOW(const char *ssid) {
@@ -126,7 +151,7 @@ void setupESPNOW(const char *ssid) {
     Serial.print("ESP local MAC addr: ");
     Serial.println(WiFi.macAddress());
 
-    channel = getWiFiChannel(ssid);
+    channel = getWiFiChannel(ssid)+2; // trying a different channel to see if we can get better tput
     int err;
 
     //WiFi.printDiag(Serial); // Uncomment to verify channel number before
@@ -168,21 +193,6 @@ void setupESPNOW(const char *ssid) {
       logToAll("no peer found in preferences");
 #endif
     // TBD need to add logic in case either side changes hardware
-}
-
-void loopESPNOWcontrol() {
-    compassParams.id = BOARD_ID;
-    compassParams.heading = 100;
-    compassParams.accuracy = 1;
-    compassParams.calStatus = 1;
-    compassParams.readingId = readingId++;
-    // Send message via ESP-NOW
-    esp_err_t result = esp_now_send(serverAddress, (uint8_t *) &compassParams, sizeof(compassParams));
-    if (result == ESP_OK) {
-      logToAll("ESPNOW Sent with success");
-    } else {
-      logToAll("ESPNOW Error sending the data: " + String(result));
-    }
 }
 
 void loopESPNOW() {
