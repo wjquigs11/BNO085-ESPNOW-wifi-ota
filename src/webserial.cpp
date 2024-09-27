@@ -14,7 +14,7 @@ extern String host;
 extern JSONVar readings;
 static int orientation;
 extern Preferences preferences;
-extern unsigned long WebTimerDelay;
+extern int WebTimerDelay;
 extern int num_n2k_sent;
 extern int calStatus;
 
@@ -29,11 +29,12 @@ extern float heading, accuracy;
 extern uint8_t serverAddress[];
 extern bool foundPeer;
 extern bool espnowtoggle;
-extern int totalReports;
-extern int goodReports;
 #endif
+extern int totalReports, reportMAG, reportIMU;
 extern int reportType;
 extern Adafruit_BNO08x bno08x;
+
+extern bool teleplot;
 
 void logToAll(String s);
 #define PRBUF 128
@@ -85,7 +86,7 @@ String formatMacAddress(const String& macAddress) {
   return result;
 }
 
-String commandList[] = {"?", "format", "restart", "ls", "scan", "hostname", "status", "wificonfig", "espnowtoggle"};
+String commandList[] = {"?", "format", "restart", "ls", "scan", "hostname", "status", "wificonfig", "teleplot"};
 #define ASIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 String words[10]; // Assuming a maximum of 10 words
 
@@ -158,6 +159,8 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       String buf = "hostname: " + host + ", variation: " + String(compassParams.variation) + ", orientation: " + String(compassParams.orientation) + ", timerdelay: " + String(WebTimerDelay);
       buf += ", frequency: " + String(compassParams.frequency);
       logToAll(buf);
+      unsigned long uptime = millis() / 1000;
+      logToAll("uptime: " + String(uptime));
 #ifdef N2K
       buf = "n2k xmit: " + String(num_n2k_sent);
       buf += ", n2k recv: " + String(num_n2k_messages);
@@ -167,8 +170,8 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       sprintf(prbuf, "heading: %.2f d, %0.2f r, accuracy %.2f/%.2f r/d, cal status %d\n", heading, heading*DEGTORAD, accuracy, accuracy*180.0/M_PI, calStatus);
       logToAll(prbuf);
       logToAll(JSON.stringify(readings));
+      logToAll("compass reports total: " + String(totalReports) + " magnetic: " + String(reportMAG) + " IMU: " + String(reportIMU));
 #ifdef ESPNOW
-      logToAll("compass reports total: " + String(totalReports) + " good: " + String(goodReports));
       logToAll("espnowtoggle " + String(espnowtoggle));
 #endif
       logToAll("reportType " + String(reportType,HEX));
@@ -203,12 +206,17 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       return;
     }
 #endif
+    if (words[i].equals("teleplot")) {
+      teleplot = !teleplot;
+      logToAll("teleplot " + String(teleplot));
+      return;
+    }
     if (words[i].equals("rtype")) {
       reportType = preferences.getInt("rtype", 0); // change after 1st write
       if (!words[++i].isEmpty()) {
         reportType = (int)strtol(words[i].c_str(), NULL, 16);
         preferences.putInt("rtype", reportType);
-        WebSerial.printf("compass report type set to 0x%x\n", reportType);
+        WebSerial.printf("compass report type set to 0x%x\n", reportType,compassParams.frequency*1000);
         if (!bno08x.enableReport(reportType))
               WebSerial.printf("Could not enable local report 0x%x\n",reportType);
       } else {

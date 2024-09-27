@@ -1,62 +1,58 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <title>Mast Compass</title>
+<html>
+
+<head>
+    <title>Mast Rotation Sensor</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="icon" type="image/png" href="favicon.ico">
     <link rel="stylesheet" type="text/css" href="style.css">
-    <meta charset="UTF-8" />
-    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-    <style>
-      body {
-        display: flex;
-        flex-direction: column;
-        height: 100vh;
-      }
+    <script src="gauge.min.js"></script>
+</head>
 
-      .compass {
-        position: relative;
-        width: 320px;
-        height: 320px;
-        border-radius: 50%;
-        box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-        margin: auto;
-      }
-
-      .compass > .compass-circle,
-      .compass > .my-point {
-        position: absolute;
-        width: 90%;
-        height: 90%;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        transition: transform 0.1s ease-out;
-        background: url(./compasscard.png)
-          center no-repeat;
-        background-size: contain;
-      }
-
-      .start-btn {
-        margin-bottom: auto;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="topnav">
-      <h1>ESP32 Compass</h1>
-  </div>
-<div class="compass">
-      <div class="compass-circle"></div>
+<body>
+    <!-- Simulate a smartphone / tablet -->
+    <!--div class="mobile-container">
+        <div class="topnav">
+            <a href="/" class="active">
+                <h1>Mast Rotation Sensor</h1>
+            </a>
+            <div id="myLinks">
+                <a href="/settings">Settings</a>
+                <a href="/wifimanager">Wifi Settings</a>
+                <a href="/calibrate">Calibrate</a>
+                <a href="/mastcompass">Mast Compass</a>
+                <a href="/compass">Compass</a>
+                <a href="/update">Update</a>
+                <a href="/host">Host info</a>
+            </div>
+            <a href="javascript:void(0);" class="icon" onclick="menuFun()">
+                <i class="fa fa-bars"></i>
+            </a>
+        </div-->
+        <div class="content">
+            <!--div class="card-grid"-->
+                <div class="card" id="magrot-card">
+                </div>
+                    <canvas id="gauge-magrot"></canvas>
+                    <img id="hallsensor" src="yellow.png" width="30" height="30" alt="hallsensor">
+                </div> 
+                <div class="card">
+                    <p class="bearing">heading: <span id="heading"></span>&deg;</p>
+                    <p class="bearing">calibration: <span id="calstatus"></span></p>
+                </div> 
+                <div class="card">
+                        <!--p class="card-title"><i class="bearing-title" style="color:#059e8a;"></i> Bearing</p-->
+                    <p class="bearing">bearing: <span id="bearing"></span>&deg;</p>
+                    <!--p class="bearing">variation: <span id="variation"></span>&deg;</p-->
+                    <p class="bearing">orientation: <span id="orientation"></span>&deg;</p>
+                    <p class="bearing">frequency: <span id="frequency"></span> (ms)</p>
+                </div>
+            <!--/div-->
+        </div>
     </div>
-    <div class="card">
-      <!--p class="card-title"><i class="bearing-title" style="color:#059e8a;"></i> Bearing</p-->
-      <p class="bearing">bearing (m): <span id="bearing"></span>&deg;</p>
-      <p>variation: <span id="variation"></span>&deg;</p>
-      <p class="bearing">orientation: <span id="orientation"></span>&deg;</p>
-      <p class="bearing">frequency: <span id="frequency"></span> (ms)</p>
-      <img id="calibration" src="red.png" width="20" height="20" alt="calibration">
-    </div>
+    <script src="compass-script.js"></script>
+    <script src="magrot-script.js"></script>
 </body>
-    <script src="compass-script-test.js"></script>
+
 </html>

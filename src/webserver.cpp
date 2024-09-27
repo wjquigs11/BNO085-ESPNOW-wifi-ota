@@ -36,7 +36,9 @@ extern unsigned long lastTime;
 extern int WebTimerDelay;
 extern int minReadRate;
 
-extern bool gameRot, absRot;
+#ifdef HALLSENS
+extern bool hallDisplay;
+#endif
 
 float calculateHeading(float r, float i, float j, float k, int correction);
 float calculateHeading2(float r, float i, float j, float k);
@@ -50,6 +52,10 @@ void SendN2kCompass(float heading);
 // Get Sensor Readings and return JSON object
 String getSensorReadings() {
   // readings set in getMastHeading()
+#ifdef HALLSENS
+  // hallDisplay needs to stay true longer than hallTrigger so we have time to send to JS client
+  if (hallDisplay) hallDisplay = false;
+#endif
   String jsonString = JSON.stringify(readings);
   //logToAll("gSreadings: " + jsonString);
   return jsonString;
@@ -139,8 +145,16 @@ void startWebServer() {
       preferences.putBool("toggle",compassParams.compassOnToggle);
     } else if (request->hasParam("orientation")) {
       compassParams.orientation = atoi(request->getParam("orientation")->value().c_str());
-      logToAll("change orientation to " + String(compassParams.orientation));
+      response = "change orientation to " + String(compassParams.orientation);
+      logToAll(response);
       preferences.putInt("orientation",compassParams.orientation); 
+    } else if (request->hasParam("webtimer")) {
+      WebTimerDelay = atoi(request->getParam("webtimer")->value().c_str());
+      if (WebTimerDelay < 0) WebTimerDelay = DEFDELAY;
+      if (WebTimerDelay > 10000) WebTimerDelay = 10000;
+      response = "change web timer to " + String(WebTimerDelay);
+      logToAll(response);
+      preferences.putInt("timerdelay",WebTimerDelay); 
     }
     //request->send(SPIFFS, "/index.html", "text/html");
     //request->redirect("/index.html");

@@ -1,5 +1,4 @@
-// TBD: change params in n2k init so we're a "real" device
-
+#ifdef N2K
 #include <Arduino.h>
 #include <NMEA2000_CAN.h>
 #include <NMEA2000_esp32.h>
@@ -39,6 +38,10 @@
 
 tNMEA2000 *n2kesp;
 extern int num_n2k_sent, num_n2k_messages;
+
+#ifdef HALLSENS
+extern bool hallTrigger;
+#endif
 
 // List here messages your device will transmit.
 const unsigned long TransmitMessages[] PROGMEM={127250L,0};
@@ -91,11 +94,24 @@ tN2kMsg N2kMsg;
 
 void SendN2kCompass(float heading) {
     //logToAll("sending compass on n2k: " + String(heading));
-    SetN2kPGN127250(N2kMsg, 1, heading*DEGTORAD, N2kDoubleNA, N2kDoubleNA, N2khr_magnetic);
+    tN2kHeadingReference hRef = N2khr_Unavailable;
+#ifdef HALLSENS
+    if (hallTrigger) {  
+      // hall effect triggered so we are centered
+      // send heading as true to signal controller
+      logToAll("hall trigger");
+      hallTrigger = false;
+      hRef = N2khr_true;
+    }
+#endif
+    SetN2kPGN127250(N2kMsg, 1, heading*DEGTORAD, N2kDoubleNA, N2kDoubleNA, hRef);
     //N2kMsg.Print(&Serial);
     if (n2kesp->SendMsg(N2kMsg))
       num_n2k_sent++;
-    else logToAll("compass message send failed\n");
+    else {
+      static int errcnt;
+      if (errcnt++ % 500 == 1) logToAll("compass message send failed\n");
+    }
 }
 
 #if 0
@@ -107,4 +123,5 @@ void deleteCreateN2kReact() {
 #endif
   });  
 }
+#endif
 #endif

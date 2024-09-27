@@ -1,9 +1,9 @@
-const compassCircle = document.querySelector(".compass-circle");
-const myPoint = document.querySelector(".my-point");
-const startBtn = document.querySelector(".start-btn");
+//const compassCircle = document.querySelector(".compass-circle");
+//const myPoint = document.querySelector(".my-point");
+//const startBtn = document.querySelector(".start-btn");
 
 window.addEventListener('load', getReadings);
-
+/*
 function init() {
   window.addEventListener("deviceorientationabsolute", handler, true);
 }
@@ -12,7 +12,7 @@ function handler(e) {
   compass = e.webkitCompassHeading || Math.abs(e.alpha - 360);
   compassCircle.style.transform = `translate(-50%, -50%) rotate(${-compass}deg)`;
 }
-
+*/
 // Function to get current readings on the webpage when it loads for the first time
 function getReadings() {
     var xhr = new XMLHttpRequest();
@@ -27,7 +27,7 @@ function getReadings() {
         console.log(myObj);
         var bearing = myObj.bearing;
         // we know the JSON object has a 'bearing' property because we set it in esp32 getSensorReadings()
-        compassCircle.style.transform = `translate(-50%, -50%) rotate(${-bearing}deg)`;
+        //compassCircle.style.transform = `translate(-50%, -50%) rotate(${-bearing}deg)`;
       }
     }; 
     xhr.open("GET", "/readings", true);
@@ -57,11 +57,24 @@ if (!!window.EventSource) {
     var myObj = JSON.parse(e.data);
     console.log(myObj);
     var bearing = myObj.bearing; //.toFixed(1);
-    compassCircle.style.transform = `translate(-50%, -50%) rotate(${-bearing}deg)`;
+    //compassCircle.style.transform = `translate(-50%, -50%) rotate(${-bearing}deg)`;
+    gaugeMagRot.value = bearing;
     document.getElementById('bearing').innerHTML = bearing;
     document.getElementById('variation').innerHTML = myObj.variation;
     document.getElementById('orientation').innerHTML = myObj.orientation;
     document.getElementById('frequency').innerHTML = myObj.frequency;
+    var hallsens = myObj.hallsens;
+    let imageElement = document.getElementById("hallsensor");
+    if (imageElement) {
+      if (hallsens) {
+        imageElement.src = "green.png";
+      } else {
+        imageElement.src = "yellow.png";
+      }
+    }
+    document.getElementById('heading').innerHTML = myObj.frequency;
+    document.getElementById('calstatus').innerHTML = myObj.frequency;
+    /*
     var calstatus = myObj.calstatus;
     let imageElement = document.getElementById("calibration");
     console.log(imageElement);
@@ -86,5 +99,6 @@ if (!!window.EventSource) {
     } else {
       console.log("no calibration image");
     }    
+    */
   }, false);
 }

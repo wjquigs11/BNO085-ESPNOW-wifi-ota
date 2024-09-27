@@ -29,8 +29,6 @@ RepeatReaction* checkCompassReact;
 
 float lastValue = 0;
 
-#define VARIATION -15.3
-
 Preferences preferences;
 
 bool initWiFi();
@@ -49,15 +47,26 @@ bool gameRot, absRot;
 
 float calculateHeading(float r, float i, float j, float k, int correction);
 float calculateHeading2(float r, float i, float j, float k, int correction);
-float heading, heading2, accuracy;
+float heading, heading2, accuracy, magHeading;
 int calStatus;
+
+#ifdef HALLSENS
+void initHall();
+int hallLoop();
+void sensHall();
+extern int hallValue;
+extern bool hallTrigger, hallDisplay;
+extern elapsedMillis time_since_last_hall_adjust;
+#endif
+
+bool teleplot = false;
 
 #ifdef SH_ESP32
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
 TwoWire *i2c;
 // for SPI BNO compass
-#define RESET 27 // pull low to reset
+#define RESET 19 // pull low to reset
 #define SDA 21
 #define SCL 22
 // mode pins pull high for SPI
@@ -84,12 +93,11 @@ compass_s compassParams;
 
 // timing
 #define DEFDELAY 50 // for compass driver update
-unsigned long WebTimerDelay = 100; // for display
+int WebTimerDelay = 1000; // for display
 unsigned long previousMillis, previousDisplay, previousReading;
 //int minReadRate = BNOREADRATE;
 int minReadRate = DEFDELAY;
 unsigned long currentMillis = millis();
-unsigned long start;                // used to measure ESPNOW pairing time
 
 #ifdef N2K
 String can_state;
@@ -99,11 +107,7 @@ void setupN2K();
 extern tNMEA2000 *n2kesp;
 #endif
 
-#ifdef ESPNOW
-void setupESPNOW(const char *ssid);
-void loopESPNOW();
-#endif
-int reportType;
+int reportType=SH2_ARVR_STABILIZED_GRV;
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
@@ -149,32 +153,23 @@ void PollCANStatus() {
 }
 #endif
 
-// TBD!!!
-// set reports based on webserial input
-// create a new union for ESPNOW with control structure and data structure
-// control structure will indicate which report to use
-
-void setReports() {
-  logToAll("Setting compass report to: 0x" + String(reportType,HEX));
-  if (!bno08x.enableReport((sh2_SensorId_t)reportType)) {
+// enabling whatever report the user requested, plus SH2_GEOMAGNETIC_ROTATION_VECTOR for heading
+void setReports(int reportType) {
+  bool retval;
+  logToAll("Setting compass report to: 0x" + String(reportType,HEX) + " frequency: " + String(compassParams.frequency));
+  retval = bno08x.enableReport((sh2_SensorId_t)reportType, compassParams.frequency*1000);
+  if (!retval) {
     logToAll("could not set report type: " + String(reportType,HEX));  
-    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_GRV))
-      logToAll("could not set report type (2): " + String(SH2_ARVR_STABILIZED_GRV,HEX));
-    else logToAll("enabled " + String(SH2_ARVR_STABILIZED_GRV,HEX));
   }
-#if 0
-  if (gameRot)
-    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_GRV))
-      Serial.println("Could not enable game vector");
-    else
-      Serial.println("enabled game vector");
-  if (absRot)
-    if (!bno08x.enableReport(SH2_ROTATION_VECTOR, 100))
-      Serial.println("Could not enable rotation vector");
-    else
-      Serial.println("enabled abs rotation vector");
-#endif  
+#if MAG
+  // also enabling magnetic for north but only 1/10th as frequent (arg2 is time interval in us)
+  retval = bno08x.enableReport(SH2_GEOMAGNETIC_ROTATION_VECTOR);//, compassParams.frequency*1000);//*10000);
+  if (!retval) {
+    logToAll("could not set report type: SH2_GEOMAGNETIC_ROTATION_VECTOR");
+  } else logToAll("enabled SH2_GEOMAGNETIC_ROTATION_VECTOR");
+#endif
 }
+
 
 // get heading from the compass
 // return values:
@@ -183,8 +178,7 @@ void setReports() {
 // -2.0 = minimum delay in case displayDelay is set too low
 // -3.0 = error reading sensor
 // -4.0 = unexpected report from sensor
-int totalReports;
-int goodReports;
+int totalReports, reportMAG, reportIMU;
 
 float getCompassHeading(int variation, int orientation) {
   float retcode = -9.9;
@@ -201,9 +195,10 @@ float getCompassHeading(int variation, int orientation) {
 
   if (bno08x.wasReset()) {
     Serial.print("sensor was reset ");
-    setReports();
+    setReports(reportType);
   }
   if (!bno08x.getSensorEvent(&sensorValue)) {
+    logToAll("no sensor event");
     return -3.0;
   }
   /* Status of a sensor
@@ -212,56 +207,57 @@ float getCompassHeading(int variation, int orientation) {
    *   2 - Accuracy medium
    *   3 - Accuracy high
    */
+  retcode = heading; // "pre-set" retcode to PREVIOUS value
   switch (sensorValue.sensorId) {
   case SH2_GAME_ROTATION_VECTOR:
   case SH2_GEOMAGNETIC_ROTATION_VECTOR:
-    goodReports++; totalReports++;
-    heading = calculateHeading(sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k, variation + orientation);
-#ifdef DEBUG
-    Serial.printf("%d game vector %.2f %.2f %.2f %.2f ", sensorValue.sensorId, sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k);
-    //Serial.printf("heading: %.2f deg\n", heading);
-#endif
-    retcode = heading;
+    reportMAG++; totalReports++;
+    magHeading = calculateHeading(sensorValue.un.gameRotationVector.real, sensorValue.un.gameRotationVector.i, sensorValue.un.gameRotationVector.j, sensorValue.un.gameRotationVector.k, variation + orientation);
     calStatus = sensorValue.status;
     accuracy = sensorValue.un.rotationVector.accuracy;
+    //logToAll("mag heading: " + String(magHeading) + " acc: " + String(accuracy) + " cal: " + String(calStatus));
     break;  
-    case SH2_ARVR_STABILIZED_GRV:
-    goodReports++; totalReports++;
+  case SH2_ARVR_STABILIZED_GRV:
+    reportIMU++; totalReports++;
     heading = calculateHeading(sensorValue.un.arvrStabilizedGRV.real, sensorValue.un.arvrStabilizedGRV.i, sensorValue.un.arvrStabilizedGRV.j, sensorValue.un.arvrStabilizedGRV.k, variation + orientation);
-#ifdef DEBUG
-    //Serial.printf("%d ARVR_STAB_GRV %.2f %.2f %.2f %.2f ", sensorValue.sensorId, sensorValue.un.arvrStabilizedGRV.real, sensorValue.un.arvrStabilizedGRV.i, sensorValue.un.arvrStabilizedGRV.j, sensorValue.un.arvrStabilizedGRV.k);
-    Serial.printf("heading: %.2f deg\n", heading);
-#endif
     retcode = heading;
+    //logToAll("imu heading: " + String(heading));
     break;
   case SH2_ROTATION_VECTOR:
-    goodReports++; totalReports++;
+    totalReports++;
     calStatus = sensorValue.status;
     accuracy = sensorValue.un.rotationVector.accuracy;
     heading = calculateHeading(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, variation + orientation);
-    //Serial.printf("abs vector status %d %.2f %.2f %.2f %.2f\n", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
-    //logToAll("heading1: " + String(heading) + "  cal: " + calStatus + "\n");
-#ifdef DEBUG
-    heading2 = calculateHeading2(sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k, 0);
-    printf("rota vector status %d %.2f %.2f %.2f %.2f ", calStatus, sensorValue.un.rotationVector.real, sensorValue.un.rotationVector.i, sensorValue.un.rotationVector.j, sensorValue.un.rotationVector.k);
-    printf("heading2: %.2f degrees, accuracy %.2f/%.2f r/d, status %d\n", heading2, accuracy, accuracy * 180.0 / M_PI, calStatus);
-#endif
-    retcode = heading;
     break;
+  case SH2_GYROSCOPE_CALIBRATED:
+    totalReports++;
+    logToAll("gyroscope calibrated");
+    break;
+  case SH2_MAGNETIC_FIELD_CALIBRATED:
+    totalReports++;
+    logToAll("magnetic field calibrated");
+    break;  
   default:
     totalReports++;
     logToAll("unknown sensor ID: %d" + String(sensorValue.sensorId));
     break;
   }
   // configure readings for web page server sent events (SSE)
-  readings["bearing"] = String(heading,2);
-  readings["variation"] = compassParams.variation;
+  // "bearing" will be used for +/- centerline of boat
+  // "heading" will be used for direction relative to magnetic north
+  float bearShow = heading;
+  // force heading to -180..180 for gauge
+  if (bearShow>180) bearShow -= 360;
+  readings["bearing"] = String(bearShow,2);
+  readings["heading"] = String(heading, 2);
+  //readings["variation"] = compassParams.variation;
   readings["orientation"] = compassParams.orientation;
   readings["frequency"] = compassParams.frequency;
   readings["calstatus"] = calStatus;
-  //logToAll("readings: " + JSON.stringify(readings));
-  if (gameRot && absRot)
-    printf("difference %.2f\n", abs(heading - heading2));
+  #ifdef HALLSENS
+  readings["hallsens"] = hallDisplay;
+  #endif
+
   return retcode;
 }
 
@@ -275,12 +271,12 @@ float calculateHeading(float r, float i, float j, float k, int correction) {
   float r33 = 1 - 2 * (i * i + j * j);
 
   // Calculate pitch (theta) and roll (phi)
-  float theta = -asin(r31);
-  float phi = atan2(r32, r33);
-  // Calculate yaw (psi)
-  float psi = atan2(-r21, r11);
+  //float theta = -asin(r31);
+  //float phi = atan2(r32, r33);
+  // Calculate yaw (psi) (negative because mast compass is mounted upside down)
+  float psi = -atan2(-r21, r11);
 
-  double heading = (psi * 180 / M_PI) + correction;
+  double heading = (psi * RADTODEG) + correction;
   // correction may be positive or negative
   if (heading > 359) heading -= 360;
   if (heading < 0) heading += 360;
@@ -289,7 +285,7 @@ float calculateHeading(float r, float i, float j, float k, int correction) {
 
 float calculateHeading2(float r, float i, float j, float k, int correction) {
   float heading = atan2(-2.0 * (i * j + k * r), r * r - i * i - j * j + k * k); // in radians
-  heading *= (180.0 / M_PI);                                                   // convert to degrees
+  heading *= RADTODEG;                                                   // convert to degrees
   heading += correction;
   if (heading < 0) heading += 360.0;
   return heading;
@@ -331,12 +327,13 @@ if (RESET>0) { // init compass if we have a RESET pin
   // 0x4B for Teyleten
 #ifdef SH_ESP32
   Wire1.begin(SDA,SCL);
-  if (!(compassReady = bno08x.begin_I2C(0x4B, &Wire1, 0)))
+  if (!(compassReady = bno08x.begin_I2C(IMU, &Wire1, 0)))
     i2cScan(Wire1);
 #else
-  Wire.setClock(100000);  // slow clock to compensate for errors
-  Wire.setTimeOut(1000); // Set timeout to 1 second
-  compassReady = bno08x.begin_I2C(0x4A, &Wire, 0);
+  //Wire.setClock(100000);  // slow clock to compensate for errors
+  //Wire.setTimeOut(1000); // Set timeout to 1 second
+//  compassReady = bno08x.begin_I2C(0x4A, &Wire, 0);
+  compassReady = bno08x.begin_I2C(0x4A);
   if (!compassReady) {
     Serial.println("BNO08x not found");
     i2cScan(Wire);
@@ -348,8 +345,15 @@ if (RESET>0) { // init compass if we have a RESET pin
       String logString = "Part " + String(bno08x.prodIds.entry[n].swPartNumber) + ": Version :" + String(bno08x.prodIds.entry[n].swVersionMajor) + "." + String(bno08x.prodIds.entry[n].swVersionMinor) + "." + String(bno08x.prodIds.entry[n].swVersionPatch) + " Build " + String(bno08x.prodIds.entry[n].swBuildNumber);
       logToAll(logString);
     }
-    setReports();
+    setReports(reportType);
   }
+
+#ifdef HALLSENS
+  if (compassReady)
+    initHall(); // hall effect sensor for zero
+  else Serial.printf("Hall not initialized %d\n", compassReady);
+#endif
+
   if (SPIFFS.begin())
     Serial.println("opened SPIFFS");
   else
@@ -364,10 +368,6 @@ if (RESET>0) { // init compass if we have a RESET pin
   } else {
     startAP();
   }
-
-#ifdef ESPNOW
-  setupESPNOW(WiFi.SSID().c_str());
-#endif
 
   // start a console.log file in case we crash before Webserial starts
   if (SPIFFS.exists("/console.log")) {
@@ -411,7 +411,6 @@ if (RESET>0) { // init compass if we have a RESET pin
   //Serial.printf("absRot %d\n", absRot);
   host = preferences.getString("hostname", host);
   logToAll("hostname: " + host + "\n");
-  // reading ESPNOW peer MAC in espnow.cpp
   reportType = preferences.getInt("rtype", SH2_GAME_ROTATION_VECTOR);
   logToAll("reportType = 0x" + String(reportType,HEX));
 
@@ -436,9 +435,13 @@ if (RESET>0) { // init compass if we have a RESET pin
   }
 
   // Update the time
-  while(!timeClient.update()) {
+  int retries;
+  while(!timeClient.update() && (retries++ < 10)) {
+      Serial.print(".");
       timeClient.forceUpdate();
   }
+  Serial.println();
+
   logToAll(timeClient.getFormattedDate());
 
   ElegantOTA.begin(&server);
@@ -463,12 +466,14 @@ if (RESET>0) { // init compass if we have a RESET pin
 
   // update web page
   app.onRepeat(WebTimerDelay, []() {
+    static int counter;
     if (compassReady) {
       // Send Events to the client with the Sensor Readings Every x msecs
       //events.send("ping",NULL,millis());
       events.send(getSensorReadings().c_str(),"new_readings" ,millis());
-      //WebSerial.printf("heading: %.2f d, %0.2f r, accuracy %.2f/%.2f r/d, cal status %d\n", heading, heading*DEGTORAD, accuracy, accuracy*180.0/M_PI, calStatus);
     }
+    if (counter++ % 600 == 0)
+      logToAll(timeClient.getFormattedDate());
     consLog.flush();
 });
 
@@ -480,19 +485,24 @@ if (RESET>0) { // init compass if we have a RESET pin
 #endif
   });  
 
+#ifdef HALLSENS
+  app.onRepeat(10, []() {
+    sensHall();
+  });
+#endif
+
   app.onRepeat(100, []() {
     //PollCANStatus();
 #ifdef N2K
     n2kesp->ParseMessages();
-#endif
-#ifdef ESPNOW
-    loopESPNOW();
 #endif
   });
 
   app.onRepeat(100, []() {
     ElegantOTA.loop();  
     WebSerial.loop();
+    if (teleplot)
+      Serial.printf(">yaw:%0.2f\n",heading);
   });
 
 #ifdef SH_ESP32
@@ -511,8 +521,9 @@ if (RESET>0) { // init compass if we have a RESET pin
     display->printf("\n");
     display->setTextSize(2);
     display->printf("%.1f\n", heading);
+    display->printf("%.1f\n", magHeading);
     display->setTextSize(1);
-    display->printf("%.1f\n", accuracy*180.0/M_PI);
+    display->printf("%.1f\n", accuracy*RADTODEG);
     display->printf("%d\n", calStatus);
     display->display();
 #ifdef N2K
