@@ -24,11 +24,6 @@ extern String can_state;
 
 extern float mastCompassDeg;
 
-#ifdef ESPNOW
-extern uint8_t serverAddress[];
-extern bool foundPeer;
-extern bool espnowtoggle;
-#endif
 #ifdef BNO08X
 extern int reportType;
 extern Adafruit_BNO08x bno08x;
@@ -171,10 +166,6 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
 #endif
       logToAll("mast compass: %0.2f" + String(mastCompassDeg,2));
       logToAll(JSON.stringify(readings));
-      //logToAll("compass reports total: " + String(totalReports) + " magnetic: " + String(reportMAG) + " IMU: " + String(reportIMU));
-#ifdef ESPNOW
-      logToAll("espnowtoggle " + String(espnowtoggle));
-#endif
 #ifdef BNO08X
       logToAll("reportType " + String(reportType,HEX));
 #endif

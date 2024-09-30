@@ -102,11 +102,6 @@ void setupN2K();
 extern tNMEA2000 *n2kesp;
 #endif
 
-#ifdef ESPNOW
-void setupESPNOW(const char *ssid);
-void loopESPNOW();
-#endif
-
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
