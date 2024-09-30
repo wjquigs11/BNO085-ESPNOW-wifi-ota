@@ -128,6 +128,7 @@ void startWebServer() {
       response = "change frequency to " + String(compassParams.frequency) + "\n";
       logToAll(response);
       preferences.putInt("frequency",compassParams.frequency); 
+#if 0 // NOTE PUT IT BACK IN LATER!!!
       logToAll("restarting compass check reaction");
       // now delete/create reaction 
       app.remove(checkCompassReact);
@@ -137,6 +138,7 @@ void startWebServer() {
         SendN2kCompass(heading);
 #endif
       });
+#endif
     }  else if (request->hasParam("toggle")) {
       Serial.printf("toggle %s\n", request->getParam("toggle")->value().c_str());
       compassParams.compassOnToggle = (request->getParam("toggle")->value().equals("true")) ? true : false;

@@ -1,0 +1,1 @@
+../../Garmin-N2K-Mast-Rotation/src/compass.h

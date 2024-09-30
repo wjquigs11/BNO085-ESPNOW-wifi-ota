@@ -16,23 +16,25 @@ static int orientation;
 extern Preferences preferences;
 extern int WebTimerDelay;
 extern int num_n2k_sent;
-extern int calStatus;
 
 #ifdef N2K
 extern int num_n2k_sent, num_n2k_messages;
 extern String can_state;
 #endif
 
-extern float heading, accuracy;
+extern float mastCompassDeg;
 
 #ifdef ESPNOW
 extern uint8_t serverAddress[];
 extern bool foundPeer;
 extern bool espnowtoggle;
 #endif
-extern int totalReports, reportMAG, reportIMU;
+#ifdef BNO08X
 extern int reportType;
 extern Adafruit_BNO08x bno08x;
+extern int IMUreports[SH2_MAX_SENSOR_ID];
+extern int totalReports;
+#endif
 
 extern bool teleplot;
 
@@ -143,7 +145,7 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       //i2cScan();
       return;
     }
-    if (words[i].equals("hostname")) {
+    if (words[i].startsWith("host")) {
       if (!words[++i].isEmpty()) {
         host = words[i];
         preferences.putString("hostname", host);
@@ -167,60 +169,69 @@ void WebSerialonMessage(uint8_t *data, size_t len) {
       buf += ", can state: " + can_state;
       logToAll(buf);
 #endif
-      sprintf(prbuf, "heading: %.2f d, %0.2f r, accuracy %.2f/%.2f r/d, cal status %d\n", heading, heading*DEGTORAD, accuracy, accuracy*180.0/M_PI, calStatus);
-      logToAll(prbuf);
+      logToAll("mast compass: %0.2f" + String(mastCompassDeg,2));
       logToAll(JSON.stringify(readings));
-      logToAll("compass reports total: " + String(totalReports) + " magnetic: " + String(reportMAG) + " IMU: " + String(reportIMU));
+      //logToAll("compass reports total: " + String(totalReports) + " magnetic: " + String(reportMAG) + " IMU: " + String(reportIMU));
 #ifdef ESPNOW
       logToAll("espnowtoggle " + String(espnowtoggle));
 #endif
+#ifdef BNO08X
       logToAll("reportType " + String(reportType,HEX));
-      WebSerial.flush();
+#endif
       buf = String();
       return;
     }
-    if (words[i].equals("wificonfig")) {
+    if (words[i].startsWith("wifi")) {
       String buf = "hostname: " + host;
       buf += " wifi: " + WiFi.SSID();
       buf += " ip: " + WiFi.localIP().toString();
       buf += "  MAC addr: " + formatMacAddress(WiFi.macAddress());
       logToAll(buf);
-#ifdef ESPNOW
-      if (foundPeer) {
-        buf = "peer: ";
-        for (int i = 0; i < ESP_NOW_ETH_ALEN; i++) { 
-          if (i > 0) buf += ":";
-          buf += String(serverAddress[i], HEX);
-          if (buf.length() == 1) buf = "0" + buf;
-        } 
-        logToAll(buf);
-      } else logToAll("no ESPNOW peer");
-#endif
       buf = String();
       return;
     }
-#ifdef ESPNOW
-    if (words[i].equals("espnowtoggle")) {
-      espnowtoggle = !espnowtoggle;
-      logToAll("espnowtoggle " + String(espnowtoggle));
-      return;
-    }
-#endif
-    if (words[i].equals("teleplot")) {
+    if (words[i].startsWith("teleplot")) {
       teleplot = !teleplot;
       logToAll("teleplot " + String(teleplot));
       return;
     }
-    if (words[i].equals("rtype")) {
-      reportType = preferences.getInt("rtype", 0); // change after 1st write
+  
+#ifdef BNO08X
+    if (words[i].startsWith("rtype")) {
       if (!words[++i].isEmpty()) {
         reportType = (int)strtol(words[i].c_str(), NULL, 16);
         preferences.putInt("rtype", reportType);
-        WebSerial.printf("compass report type set to 0x%x\n", reportType,compassParams.frequency*1000);
+        logToAll("compass report type set to " + String(reportType));
         if (!bno08x.enableReport(reportType))
-              WebSerial.printf("Could not enable local report 0x%x\n",reportType);
+              logToAll("Could not enable local report " + String(reportType));
       } else {
-        WebSerial.printf("compass report type is 0x%x\n",reportType);
+        logToAll("compass report type is " + String(reportType));
+        logToAll("compass reports total: " + String(totalReports));
+        for (int i=0; i<SH2_MAX_SENSOR_ID; i++) {
+          if (IMUreports[i])
+            logToAll("IMU report " + String(i) + "/0x" + String(i, HEX) + ": " + String(IMUreports[i]));
+        }
+      }
+      return;
+    }
+#endif
+    if (words[i].startsWith("varia")) {
+      if (!words[++i].isEmpty()) {
+        compassParams.variation = atoi(words[i].c_str());
+        preferences.putInt("variation", compassParams.variation);
+        logToAll("variation set to " + String(compassParams.variation));
+      } else {
+        logToAll("variation: " + String(compassParams.variation));
+      }
+      return;
+    }    
+    if (words[i].startsWith("orient")) {
+      if (!words[++i].isEmpty()) {
+        compassParams.orientation = atoi(words[i].c_str());
+        preferences.putInt("orientation", compassParams.orientation);
+        logToAll("orientation set to " + String(compassParams.orientation));
+      } else {
+        logToAll("orientation: " + String(compassParams.orientation));
       }
       return;
     }
